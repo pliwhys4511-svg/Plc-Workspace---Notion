@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: plc-workspace
+    runtime: node
+    plan: free
+    buildCommand: npm install --no-audit --no-fund && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: PLC_DATA_DIR
+        value: ./data

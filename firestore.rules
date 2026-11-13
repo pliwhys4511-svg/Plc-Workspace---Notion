@@ -1,0 +1,458 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Global reusable primitives
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isVerifiedUser() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function userRootExists(userId) {
+      return exists(/databases/$(database)/documents/users/$(userId)) ||
+        existsAfter(/databases/$(database)/documents/users/$(userId));
+    }
+
+    function pageExists(userId, pageId) {
+      return exists(/databases/$(database)/documents/users/$(userId)/pages/$(pageId)) ||
+        existsAfter(/databases/$(database)/documents/users/$(userId)/pages/$(pageId));
+    }
+
+    function databaseExists(userId, dbId) {
+      return exists(/databases/$(database)/documents/users/$(userId)/databases/$(dbId)) ||
+        existsAfter(/databases/$(database)/documents/users/$(userId)/databases/$(dbId));
+    }
+
+    // 3. Entity validation blueprints
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll(['uid', 'displayName', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'displayName', 'photoURL', 'createdAt', 'updatedAt']) &&
+        data.uid is string &&
+        isValidId(data.uid) &&
+        data.uid == userId &&
+        data.uid == request.auth.uid &&
+        data.displayName is string &&
+        data.displayName.size() >= 1 &&
+        data.displayName.size() <= 120 &&
+        (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 512)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidWorkspaceMeta(data, userId) {
+      return data.keys().hasAll(['ownerId', 'name', 'icon', 'theme', 'updatedAt']) &&
+        data.keys().hasOnly(['ownerId', 'name', 'icon', 'theme', 'updatedAt']) &&
+        data.ownerId is string &&
+        isValidId(data.ownerId) &&
+        data.ownerId == userId &&
+        data.ownerId == request.auth.uid &&
+        data.name is string &&
+        data.name.size() >= 1 &&
+        data.name.size() <= 120 &&
+        data.icon is string &&
+        data.icon.size() >= 1 &&
+        data.icon.size() <= 32 &&
+        data.theme is string &&
+        data.theme in ['light', 'dark'] &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidPage(data, userId, pageId) {
+      return data.keys().hasAll([
+          'ownerId', 'id', 'title', 'icon', 'font',
+          'isFavorite', 'isTrashed', 'isDatabase', 'locked',
+          'position', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId', 'id', 'parentId', 'title', 'icon', 'cover', 'coverPosition',
+          'font', 'smallText', 'fullWidth', 'isFavorite', 'isTrashed', 'isDatabase',
+          'databaseId', 'isRowPage', 'locked', 'position', 'createdAt', 'updatedAt'
+        ]) &&
+        data.ownerId is string &&
+        isValidId(data.ownerId) &&
+        data.ownerId == userId &&
+        data.ownerId == request.auth.uid &&
+        data.id is string &&
+        isValidId(data.id) &&
+        data.id == pageId &&
+        (!('parentId' in data) || data.parentId == null || (data.parentId is string && isValidId(data.parentId))) &&
+        data.title is string &&
+        data.title.size() <= 300 &&
+        data.icon is string &&
+        data.icon.size() <= 32 &&
+        (!('cover' in data) || data.cover == null || (data.cover is string && data.cover.size() <= 512)) &&
+        (!('coverPosition' in data) || (data.coverPosition is number && data.coverPosition >= 0 && data.coverPosition <= 100)) &&
+        data.font is string &&
+        data.font in ['sans', 'serif', 'mono'] &&
+        (!('smallText' in data) || data.smallText is bool) &&
+        (!('fullWidth' in data) || data.fullWidth is bool) &&
+        data.isFavorite is bool &&
+        data.isTrashed is bool &&
+        data.isDatabase is bool &&
+        (!('databaseId' in data) || data.databaseId == null || (data.databaseId is string && isValidId(data.databaseId))) &&
+        (!('isRowPage' in data) || data.isRowPage is bool) &&
+        data.locked is bool &&
+        data.position is number &&
+        data.position >= 0 &&
+        data.position <= 100000 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidTableRowsList(rows) {
+      return rows is list &&
+        rows.size() <= 100 &&
+        (rows.size() == 0 || (
+          rows[0] is map &&
+          'cells' in rows[0] &&
+          rows[0].cells is list &&
+          rows[0].cells.size() <= 30
+        ));
+    }
+
+    function isValidBlock(data, userId, blockId) {
+      return data.keys().hasAll(['ownerId', 'id', 'pageId', 'type', 'content', 'position', 'updatedAt']) &&
+        data.keys().hasOnly([
+          'ownerId', 'id', 'pageId', 'type', 'content', 'checked', 'open',
+          'details', 'icon', 'language', 'color', 'indent', 'tableRows',
+          'hasHeaderRow', 'url', 'caption', 'databaseId', 'targetPageId',
+          'position', 'updatedAt'
+        ]) &&
+        data.ownerId is string &&
+        isValidId(data.ownerId) &&
+        data.ownerId == userId &&
+        data.ownerId == request.auth.uid &&
+        data.id is string &&
+        isValidId(data.id) &&
+        data.id == blockId &&
+        data.pageId is string &&
+        isValidId(data.pageId) &&
+        data.type is string &&
+        data.type in [
+          'paragraph', 'h1', 'h2', 'h3', 'todo', 'bullet', 'numbered',
+          'toggle', 'callout', 'quote', 'code', 'divider', 'table',
+          'image', 'bookmark', 'toc', 'equation', 'database', 'page_link'
+        ] &&
+        data.content is string &&
+        data.content.size() <= 50000 &&
+        (!('checked' in data) || data.checked is bool) &&
+        (!('open' in data) || data.open is bool) &&
+        (!('details' in data) || (data.details is string && data.details.size() <= 20000)) &&
+        (!('icon' in data) || (data.icon is string && data.icon.size() <= 32)) &&
+        (!('language' in data) || (data.language is string && data.language.size() <= 40)) &&
+        (!('color' in data) || (data.color is string && data.color.size() <= 32)) &&
+        (!('indent' in data) || (data.indent is number && data.indent >= 0 && data.indent <= 10)) &&
+        (!('tableRows' in data) || isValidTableRowsList(data.tableRows)) &&
+        (!('hasHeaderRow' in data) || data.hasHeaderRow is bool) &&
+        (!('url' in data) || (data.url is string && data.url.size() <= 1000)) &&
+        (!('caption' in data) || (data.caption is string && data.caption.size() <= 500)) &&
+        (!('databaseId' in data) || data.databaseId == null || (data.databaseId is string && isValidId(data.databaseId))) &&
+        (!('targetPageId' in data) || data.targetPageId == null || (data.targetPageId is string && isValidId(data.targetPageId))) &&
+        data.position is number &&
+        data.position >= 0 &&
+        data.position <= 100000 &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidColumnsList(cols) {
+      return cols is list &&
+        cols.size() >= 1 &&
+        cols.size() <= 40 &&
+        cols[0] is map &&
+        'id' in cols[0] &&
+        cols[0].id is string &&
+        cols[0].id.size() <= 128 &&
+        'name' in cols[0] &&
+        cols[0].name is string &&
+        cols[0].name.size() <= 120;
+    }
+
+    function isValidDatabase(data, userId, databaseId) {
+      return data.keys().hasAll([
+          'ownerId', 'id', 'title', 'icon', 'activeView', 'groupByColumnId', 'columns', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId', 'id', 'title', 'icon', 'activeView', 'groupByColumnId', 'columns', 'updatedAt'
+        ]) &&
+        data.ownerId is string &&
+        isValidId(data.ownerId) &&
+        data.ownerId == userId &&
+        data.ownerId == request.auth.uid &&
+        data.id is string &&
+        isValidId(data.id) &&
+        data.id == databaseId &&
+        data.title is string &&
+        data.title.size() <= 200 &&
+        data.icon is string &&
+        data.icon.size() <= 32 &&
+        data.activeView is string &&
+        data.activeView in ['table', 'status', 'calendar', 'category', 'board', 'list', 'gallery'] &&
+        data.groupByColumnId is string &&
+        data.groupByColumnId.size() <= 128 &&
+        isValidColumnsList(data.columns) &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidDatabaseRow(data, userId, rowId) {
+      return data.keys().hasAll([
+          'ownerId', 'id', 'databaseId', 'pageId', 'cells', 'position', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId', 'id', 'databaseId', 'pageId', 'cells', 'position', 'createdAt', 'updatedAt'
+        ]) &&
+        data.ownerId is string &&
+        isValidId(data.ownerId) &&
+        data.ownerId == userId &&
+        data.ownerId == request.auth.uid &&
+        data.id is string &&
+        isValidId(data.id) &&
+        data.id == rowId &&
+        data.databaseId is string &&
+        isValidId(data.databaseId) &&
+        data.pageId is string &&
+        isValidId(data.pageId) &&
+        data.cells is map &&
+        data.cells.size() <= 50 &&
+        data.position is number &&
+        data.position >= 0 &&
+        data.position <= 100000 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidPageComment(data, userId, commentId) {
+      return data.keys().hasAll([
+          'ownerId', 'id', 'pageId', 'author', 'text', 'resolved', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId', 'id', 'pageId', 'author', 'text', 'resolved', 'createdAt', 'updatedAt'
+        ]) &&
+        data.ownerId is string &&
+        isValidId(data.ownerId) &&
+        data.ownerId == userId &&
+        data.ownerId == request.auth.uid &&
+        data.id is string &&
+        isValidId(data.id) &&
+        data.id == commentId &&
+        data.pageId is string &&
+        isValidId(data.pageId) &&
+        data.author is string &&
+        data.author.size() >= 1 &&
+        data.author.size() <= 120 &&
+        data.text is string &&
+        data.text.size() >= 1 &&
+        data.text.size() <= 5000 &&
+        data.resolved is bool &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    // 4. Match blocks per collection
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isOwner(userId);
+      allow list: if isVerifiedUser() && existing().uid == request.auth.uid && userId == request.auth.uid;
+      allow create: if isValidId(userId) &&
+        isOwner(userId) &&
+        isValidUserProfile(incoming(), userId) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isValidId(userId) &&
+        isOwner(userId) &&
+        isValidUserProfile(incoming(), userId) &&
+        incoming().uid == existing().uid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'updatedAt']);
+      allow delete: if isValidId(userId) && isOwner(userId);
+
+      match /meta/{docId} {
+        allow get: if isValidId(docId) && isOwner(userId) && userRootExists(userId);
+        allow list: if isOwner(userId) && existing().ownerId == request.auth.uid;
+        allow create: if isValidId(docId) &&
+          docId == 'settings' &&
+          isOwner(userId) &&
+          isValidWorkspaceMeta(incoming(), userId) &&
+          incoming().updatedAt == request.time &&
+          userRootExists(userId);
+        allow update: if isValidId(docId) &&
+          docId == 'settings' &&
+          isOwner(userId) &&
+          isValidWorkspaceMeta(incoming(), userId) &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['name', 'icon', 'theme', 'updatedAt']) &&
+          userRootExists(userId);
+        allow delete: if isValidId(docId) && isOwner(userId) && userRootExists(userId);
+      }
+
+      match /pages/{pageId} {
+        allow get: if isValidId(pageId) && isOwner(userId) && userRootExists(userId);
+        allow list: if isOwner(userId) && existing().ownerId == request.auth.uid;
+        allow create: if isValidId(pageId) &&
+          isOwner(userId) &&
+          isValidPage(incoming(), userId, pageId) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          userRootExists(userId);
+        allow update: if isValidId(pageId) &&
+          isOwner(userId) &&
+          isValidPage(incoming(), userId, pageId) &&
+          incoming().id == existing().id &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().isDatabase == existing().isDatabase &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          userRootExists(userId) && (
+            // Action: Edit appearance, title, icon, or hierarchy
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'title', 'icon', 'cover', 'coverPosition', 'font',
+              'smallText', 'fullWidth', 'parentId', 'position', 'databaseId', 'updatedAt'
+            ]) ||
+            // Action: Toggle favorite, trash, or page lock
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'isFavorite', 'isTrashed', 'locked', 'updatedAt'
+            ])
+          );
+        allow delete: if isValidId(pageId) && isOwner(userId) && userRootExists(userId);
+      }
+
+      match /blocks/{blockId} {
+        allow get: if isValidId(blockId) && isOwner(userId) && userRootExists(userId);
+        allow list: if isOwner(userId) && existing().ownerId == request.auth.uid;
+        allow create: if isValidId(blockId) &&
+          isOwner(userId) &&
+          isValidBlock(incoming(), userId, blockId) &&
+          incoming().updatedAt == request.time &&
+          userRootExists(userId) &&
+          pageExists(userId, incoming().pageId);
+        allow update: if isValidId(blockId) &&
+          isOwner(userId) &&
+          isValidBlock(incoming(), userId, blockId) &&
+          incoming().id == existing().id &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().pageId == existing().pageId &&
+          incoming().updatedAt == request.time &&
+          userRootExists(userId) && (
+            // Action: Edit block content & properties
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'type', 'content', 'checked', 'open', 'details', 'icon',
+              'language', 'color', 'indent', 'tableRows', 'hasHeaderRow',
+              'url', 'caption', 'databaseId', 'targetPageId', 'position', 'updatedAt'
+            ]) ||
+            // Action: Reorder or indent block
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'position', 'indent', 'updatedAt'
+            ])
+          );
+        allow delete: if isValidId(blockId) && isOwner(userId) && userRootExists(userId);
+      }
+
+      match /databases/{databaseId} {
+        allow get: if isValidId(databaseId) && isOwner(userId) && userRootExists(userId);
+        allow list: if isOwner(userId) && existing().ownerId == request.auth.uid;
+        allow create: if isValidId(databaseId) &&
+          isOwner(userId) &&
+          isValidDatabase(incoming(), userId, databaseId) &&
+          incoming().updatedAt == request.time &&
+          userRootExists(userId);
+        allow update: if isValidId(databaseId) &&
+          isOwner(userId) &&
+          isValidDatabase(incoming(), userId, databaseId) &&
+          incoming().id == existing().id &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().updatedAt == request.time &&
+          userRootExists(userId) && (
+            // Action: Switch database view (Overview, Status, Calendar, Category)
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'activeView', 'groupByColumnId', 'updatedAt'
+            ]) ||
+            // Action: Update schema, title, or columns
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'title', 'icon', 'columns', 'updatedAt'
+            ])
+          );
+        allow delete: if isValidId(databaseId) && isOwner(userId) && userRootExists(userId);
+      }
+
+      match /dbRows/{rowId} {
+        allow get: if isValidId(rowId) && isOwner(userId) && userRootExists(userId);
+        allow list: if isOwner(userId) && existing().ownerId == request.auth.uid;
+        allow create: if isValidId(rowId) &&
+          isOwner(userId) &&
+          isValidDatabaseRow(incoming(), userId, rowId) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          userRootExists(userId) &&
+          databaseExists(userId, incoming().databaseId);
+        allow update: if isValidId(rowId) &&
+          isOwner(userId) &&
+          isValidDatabaseRow(incoming(), userId, rowId) &&
+          incoming().id == existing().id &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().databaseId == existing().databaseId &&
+          incoming().pageId == existing().pageId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          userRootExists(userId) && (
+            // Action: Edit row property cells
+            incoming().diff(existing()).affectedKeys().hasOnly(['cells', 'updatedAt']) ||
+            // Action: Reorder row position
+            incoming().diff(existing()).affectedKeys().hasOnly(['position', 'updatedAt'])
+          );
+        allow delete: if isValidId(rowId) && isOwner(userId) && userRootExists(userId);
+      }
+
+      match /comments/{commentId} {
+        allow get: if isValidId(commentId) && isOwner(userId) && userRootExists(userId);
+        allow list: if isOwner(userId) && existing().ownerId == request.auth.uid;
+        allow create: if isValidId(commentId) &&
+          isOwner(userId) &&
+          isValidPageComment(incoming(), userId, commentId) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          userRootExists(userId) &&
+          pageExists(userId, incoming().pageId);
+        allow update: if isValidId(commentId) &&
+          isOwner(userId) &&
+          isValidPageComment(incoming(), userId, commentId) &&
+          incoming().id == existing().id &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().pageId == existing().pageId &&
+          incoming().author == existing().author &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          userRootExists(userId) && (
+            // Action: Resolve or reopen comment
+            incoming().diff(existing()).affectedKeys().hasOnly(['resolved', 'updatedAt']) ||
+            // Action: Edit comment text
+            incoming().diff(existing()).affectedKeys().hasOnly(['text', 'updatedAt'])
+          );
+        allow delete: if isValidId(commentId) && isOwner(userId) && userRootExists(userId);
+      }
+    }
+  }
+}

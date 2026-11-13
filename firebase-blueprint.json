@@ -1,0 +1,163 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated workspace owner profile metadata.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "displayName": { "type": "string", "maxLength": 120 },
+        "photoURL": { "type": "string", "maxLength": 512 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "displayName", "createdAt", "updatedAt"]
+    },
+    "WorkspaceMeta": {
+      "title": "WorkspaceMeta",
+      "description": "Workspace display title, icon, and theme configuration.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "icon": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "theme": { "type": "string", "enum": ["light", "dark"] },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "name", "icon", "theme", "updatedAt"]
+    },
+    "Page": {
+      "title": "Page",
+      "description": "A Notion document or database page inside the workspace hierarchy.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "parentId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 300 },
+        "icon": { "type": "string", "maxLength": 32 },
+        "cover": { "type": "string", "maxLength": 512 },
+        "coverPosition": { "type": "number" },
+        "font": { "type": "string", "enum": ["sans", "serif", "mono"] },
+        "smallText": { "type": "boolean" },
+        "fullWidth": { "type": "boolean" },
+        "isFavorite": { "type": "boolean" },
+        "isTrashed": { "type": "boolean" },
+        "isDatabase": { "type": "boolean" },
+        "databaseId": { "type": "string", "maxLength": 128 },
+        "isRowPage": { "type": "boolean" },
+        "locked": { "type": "boolean" },
+        "position": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "id", "title", "icon", "font", "isFavorite", "isTrashed", "isDatabase", "locked", "position", "createdAt", "updatedAt"]
+    },
+    "Block": {
+      "title": "Block",
+      "description": "An individual rich-text or structured content block belonging to a page.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "pageId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "type": { "type": "string", "enum": ["paragraph", "h1", "h2", "h3", "todo", "bullet", "numbered", "toggle", "callout", "quote", "code", "divider", "table", "image", "bookmark", "toc", "equation", "database", "page_link"] },
+        "content": { "type": "string", "maxLength": 50000 },
+        "checked": { "type": "boolean" },
+        "open": { "type": "boolean" },
+        "details": { "type": "string", "maxLength": 20000 },
+        "icon": { "type": "string", "maxLength": 32 },
+        "language": { "type": "string", "maxLength": 40 },
+        "color": { "type": "string", "maxLength": 32 },
+        "indent": { "type": "number" },
+        "tableRows": { "type": "array" },
+        "hasHeaderRow": { "type": "boolean" },
+        "url": { "type": "string", "maxLength": 1000 },
+        "caption": { "type": "string", "maxLength": 500 },
+        "databaseId": { "type": "string", "maxLength": 128 },
+        "targetPageId": { "type": "string", "maxLength": 128 },
+        "position": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "id", "pageId", "type", "content", "position", "updatedAt"]
+    },
+    "Database": {
+      "title": "Database",
+      "description": "Database schema, columns, and active view (Overview, Status, Calendar, Category).",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "maxLength": 200 },
+        "icon": { "type": "string", "maxLength": 32 },
+        "activeView": { "type": "string", "enum": ["table", "status", "calendar", "category", "board", "list", "gallery"] },
+        "groupByColumnId": { "type": "string", "maxLength": 128 },
+        "columns": { "type": "array" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "id", "title", "icon", "activeView", "groupByColumnId", "columns", "updatedAt"]
+    },
+    "DatabaseRow": {
+      "title": "DatabaseRow",
+      "description": "A row entry inside a Notion database.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "databaseId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "pageId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "cells": { "type": "object" },
+        "position": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "id", "databaseId", "pageId", "cells", "position", "createdAt", "updatedAt"]
+    },
+    "PageComment": {
+      "title": "PageComment",
+      "description": "Discussion comment attached to a Notion page.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "pageId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "author": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "text": { "type": "string", "minLength": 1, "maxLength": 5000 },
+        "resolved": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "id", "pageId", "author", "text", "resolved", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "User workspace owner profile."
+    },
+    "/users/{userId}/meta/{docId}": {
+      "schema": { "$ref": "#/entities/WorkspaceMeta" },
+      "description": "Workspace settings document."
+    },
+    "/users/{userId}/pages/{pageId}": {
+      "schema": { "$ref": "#/entities/Page" },
+      "description": "Notion pages owned by the user."
+    },
+    "/users/{userId}/blocks/{blockId}": {
+      "schema": { "$ref": "#/entities/Block" },
+      "description": "Content blocks belonging to the user's pages."
+    },
+    "/users/{userId}/databases/{databaseId}": {
+      "schema": { "$ref": "#/entities/Database" },
+      "description": "Notion databases owned by the user."
+    },
+    "/users/{userId}/dbRows/{rowId}": {
+      "schema": { "$ref": "#/entities/DatabaseRow" },
+      "description": "Rows inside the user's Notion databases."
+    },
+    "/users/{userId}/comments/{commentId}": {
+      "schema": { "$ref": "#/entities/PageComment" },
+      "description": "Comments on the user's pages."
+    }
+  }
+}

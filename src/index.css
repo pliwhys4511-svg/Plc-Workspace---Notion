@@ -1,0 +1,217 @@
+@import "tailwindcss";
+@source "../src";
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+:root {
+  --notion-bg: #ffffff;
+  --notion-sidebar: #f7f7f5;
+  --notion-surface: #ffffff;
+  --notion-surface-muted: #f1f1ef;
+  --notion-hover: rgba(55, 53, 47, 0.06);
+  --notion-active: rgba(55, 53, 47, 0.08);
+  --notion-border: rgba(55, 53, 47, 0.09);
+  --notion-border-strong: rgba(55, 53, 47, 0.16);
+  --notion-text: #37352f;
+  --notion-text-secondary: rgba(55, 53, 47, 0.78);
+  --notion-text-muted: rgba(55, 53, 47, 0.6);
+  --notion-text-faint: rgba(55, 53, 47, 0.38);
+  --notion-accent: #2383e2;
+  --notion-accent-hover: #1b6ec2;
+  --notion-selection: rgba(35, 131, 226, 0.2);
+  --notion-shadow: 0 4px 18px rgba(15, 15, 15, 0.08), 0 0 0 1px rgba(15, 15, 15, 0.06);
+  --notion-popover: #ffffff;
+  --notion-code-bg: #f7f6f3;
+  --notion-inline-code-bg: rgba(135, 131, 120, 0.15);
+  --notion-inline-code-fg: #eb5757;
+  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-serif: 'Source Serif 4', Georgia, serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+[data-theme="dark"] {
+  --notion-bg: #191919;
+  --notion-sidebar: #202020;
+  --notion-surface: #202020;
+  --notion-surface-muted: #252525;
+  --notion-hover: rgba(255, 255, 255, 0.055);
+  --notion-active: rgba(255, 255, 255, 0.09);
+  --notion-border: rgba(255, 255, 255, 0.09);
+  --notion-border-strong: rgba(255, 255, 255, 0.16);
+  --notion-text: rgba(255, 255, 255, 0.88);
+  --notion-text-secondary: rgba(255, 255, 255, 0.72);
+  --notion-text-muted: rgba(255, 255, 255, 0.52);
+  --notion-text-faint: rgba(255, 255, 255, 0.32);
+  --notion-accent: #2383e2;
+  --notion-accent-hover: #3b93ec;
+  --notion-selection: rgba(35, 131, 226, 0.35);
+  --notion-shadow: 0 8px 24px rgba(0, 0, 0, 0.48), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  --notion-popover: #252525;
+  --notion-code-bg: #222222;
+  --notion-inline-code-bg: rgba(135, 131, 120, 0.25);
+  --notion-inline-code-fg: #ff7369;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background-color: var(--notion-bg);
+  color: var(--notion-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: var(--notion-selection);
+}
+
+.font-notion-sans {
+  font-family: var(--font-sans);
+}
+
+.font-notion-serif {
+  font-family: var(--font-serif);
+}
+
+.font-notion-mono {
+  font-family: var(--font-mono);
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Authentic Notion inline rich-text styling */
+.notion-rich {
+  outline: none;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.notion-rich:empty::before {
+  content: attr(data-placeholder);
+  color: var(--notion-text-faint);
+  pointer-events: none;
+}
+
+.notion-rich[data-hide-unfocused="true"]:not(:focus):empty::before {
+  content: '';
+}
+
+.notion-rich code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  padding: 0.14em 0.38em;
+  border-radius: 4px;
+  background: var(--notion-inline-code-bg);
+  color: var(--notion-inline-code-fg);
+}
+
+.notion-rich a {
+  color: var(--notion-text-secondary);
+  text-decoration: underline;
+  text-decoration-color: var(--notion-border-strong);
+  text-underline-offset: 3px;
+}
+
+.notion-rich b,
+.notion-rich strong {
+  font-weight: 600;
+}
+
+/* Authentic Notion callout surfaces */
+.notion-callout-default,
+.notion-callout-gray {
+  background-color: #f1f1ef;
+}
+.notion-callout-blue {
+  background-color: #e7f3f8;
+}
+.notion-callout-green {
+  background-color: #edf3ec;
+}
+.notion-callout-yellow {
+  background-color: #fbf3db;
+}
+.notion-callout-red {
+  background-color: #fdebec;
+}
+
+[data-theme="dark"] .notion-callout-default,
+[data-theme="dark"] .notion-callout-gray {
+  background-color: #252525;
+}
+[data-theme="dark"] .notion-callout-blue {
+  background-color: #1d2d38;
+}
+[data-theme="dark"] .notion-callout-green {
+  background-color: #1f2e24;
+}
+[data-theme="dark"] .notion-callout-yellow {
+  background-color: #312b1b;
+}
+[data-theme="dark"] .notion-callout-red {
+  background-color: #362120;
+}
+
+/* Authentic Notion database tag pills (light & dark) */
+.notion-tag-gray { background-color: #e3e2e0; color: #32302c; }
+.notion-tag-brown { background-color: #eee0da; color: #442a1e; }
+.notion-tag-orange { background-color: #fadec9; color: #49290e; }
+.notion-tag-yellow { background-color: #fdecc8; color: #402c1b; }
+.notion-tag-green { background-color: #dbeddb; color: #1c3829; }
+.notion-tag-blue { background-color: #d3e5ef; color: #183347; }
+.notion-tag-purple { background-color: #e8deee; color: #412454; }
+.notion-tag-pink { background-color: #f5e0e9; color: #4c2337; }
+.notion-tag-red { background-color: #ffe2dd; color: #5d1715; }
+
+[data-theme="dark"] .notion-tag-gray { background-color: #3a3a37; color: #d8d8d4; }
+[data-theme="dark"] .notion-tag-brown { background-color: #4a352c; color: #e6cfc5; }
+[data-theme="dark"] .notion-tag-orange { background-color: #52341c; color: #f2d0b4; }
+[data-theme="dark"] .notion-tag-yellow { background-color: #4e3f1d; color: #f5dfa9; }
+[data-theme="dark"] .notion-tag-green { background-color: #244332; color: #bce0c8; }
+[data-theme="dark"] .notion-tag-blue { background-color: #1e3a4d; color: #b6d7eb; }
+[data-theme="dark"] .notion-tag-purple { background-color: #3d294d; color: #dec9ec; }
+[data-theme="dark"] .notion-tag-pink { background-color: #4d2638; color: #efc4d7; }
+[data-theme="dark"] .notion-tag-red { background-color: #572321; color: #f5c2be; }
+
+/* Subtle Notion scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(120, 119, 116, 0.22);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(120, 119, 116, 0.4);
+}
+
+@media print {
+  aside,
+  header {
+    display: none !important;
+  }
+  #scroll {
+    overflow: visible !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

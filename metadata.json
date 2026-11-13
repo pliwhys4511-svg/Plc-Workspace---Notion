@@ -1,0 +1,6 @@
+{
+  "name": "PLC Workspace",
+  "description": "A self-hostable full-stack Notion-style collaborative workspace with block editor, slash commands, nested pages, and multi-view databases.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

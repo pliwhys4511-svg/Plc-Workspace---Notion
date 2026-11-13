@@ -1,5 +1,14 @@
 import React, { useMemo, useState } from 'react';
-import { Check, LayoutTemplate, Sparkles, X } from 'lucide-react';
+import {
+  Check,
+  Download,
+  FileSpreadsheet,
+  LayoutTemplate,
+  Sparkles,
+  Trash2,
+  Upload,
+  X,
+} from 'lucide-react';
 import { NOTION_TEMPLATES, type NotionTemplate } from '../lib/templates';
 import { resolveCover } from '../data/covers';
 
@@ -7,32 +16,44 @@ interface TemplatesModalProps {
   isOpen: boolean;
   onClose: () => void;
   onUseTemplate: (template: NotionTemplate) => void;
+  customTemplates?: NotionTemplate[];
+  onOpenUploadTemplate?: () => void;
+  onExportTemplate?: (template: NotionTemplate) => void;
+  onDeleteCustomTemplate?: (templateId: string) => void;
 }
 
 export const TemplatesModal: React.FC<TemplatesModalProps> = ({
   isOpen,
   onClose,
   onUseTemplate,
+  customTemplates = [],
+  onOpenUploadTemplate,
+  onExportTemplate,
+  onDeleteCustomTemplate,
 }) => {
-  const [selectedId, setSelectedId] = useState<string>(NOTION_TEMPLATES[0].id);
+  const allTemplates = useMemo(
+    () => [...customTemplates, ...NOTION_TEMPLATES],
+    [customTemplates],
+  );
+  const [selectedId, setSelectedId] = useState<string>(allTemplates[0]?.id ?? NOTION_TEMPLATES[0].id);
   const [category, setCategory] = useState<string>('All');
 
   const categories = useMemo(() => {
-    const unique = Array.from(new Set(NOTION_TEMPLATES.map((t) => t.category)));
+    const unique = Array.from(new Set(allTemplates.map((t) => t.category)));
     return ['All', ...unique];
-  }, []);
+  }, [allTemplates]);
 
   const filtered = useMemo(
     () =>
       category === 'All'
-        ? NOTION_TEMPLATES
-        : NOTION_TEMPLATES.filter((t) => t.category === category),
-    [category],
+        ? allTemplates
+        : allTemplates.filter((t) => t.category === category),
+    [allTemplates, category],
   );
 
   const selected = useMemo(
-    () => filtered.find((t) => t.id === selectedId) ?? filtered[0] ?? NOTION_TEMPLATES[0],
-    [filtered, selectedId],
+    () => filtered.find((t) => t.id === selectedId) ?? filtered[0] ?? allTemplates[0] ?? NOTION_TEMPLATES[0],
+    [filtered, selectedId, allTemplates],
   );
 
   if (!isOpen) return null;
@@ -55,15 +76,35 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({
           <div className="flex items-center gap-2">
             <LayoutTemplate className="w-4 h-4 text-[var(--notion-text-muted)]" />
             <h2 className="text-sm font-semibold text-[var(--notion-text)]">Templates</h2>
+            {customTemplates.length > 0 && (
+              <span className="px-1.5 py-0.5 rounded bg-[var(--notion-surface-muted)] text-[10px] font-medium text-[var(--notion-text-muted)]">
+                {customTemplates.length} custom
+              </span>
+            )}
           </div>
-          <button
-            type="button"
-            aria-label="Close templates"
-            onClick={onClose}
-            className="p-1.5 rounded-md hover:bg-[var(--notion-hover)] text-[var(--notion-text-muted)]"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            {onOpenUploadTemplate && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenUploadTemplate();
+                }}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border border-[var(--notion-border-strong)] bg-[var(--notion-bg)] text-[var(--notion-text)] hover:bg-[var(--notion-hover)] transition-colors"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>Upload template</span>
+              </button>
+            )}
+            <button
+              type="button"
+              aria-label="Close templates"
+              onClick={onClose}
+              className="p-1.5 rounded-md hover:bg-[var(--notion-hover)] text-[var(--notion-text-muted)]"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[240px_1fr]">
@@ -88,19 +129,34 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({
 
             <div className="border-t border-[var(--notion-border)] pt-2 space-y-1">
               {filtered.map((tpl) => (
-                <button
+                <div
                   key={tpl.id}
-                  type="button"
-                  onClick={() => setSelectedId(tpl.id)}
-                  className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-md text-left text-xs transition-colors ${
+                  className={`group flex items-center gap-1 rounded-md transition-colors ${
                     selected.id === tpl.id
                       ? 'bg-[var(--notion-active)] text-[var(--notion-text)] font-medium'
                       : 'text-[var(--notion-text-secondary)] hover:bg-[var(--notion-hover)]'
                   }`}
                 >
-                  <span className="text-base leading-none shrink-0">{tpl.icon}</span>
-                  <span className="truncate">{tpl.name}</span>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedId(tpl.id)}
+                    className="flex-1 min-w-0 flex items-center gap-2 px-2.5 py-2 text-left text-xs"
+                  >
+                    <span className="text-base leading-none shrink-0">{tpl.icon}</span>
+                    <span className="truncate">{tpl.name}</span>
+                  </button>
+                  {tpl.isCustom && onDeleteCustomTemplate && (
+                    <button
+                      type="button"
+                      aria-label={`Delete template ${tpl.name}`}
+                      onClick={() => onDeleteCustomTemplate(tpl.id)}
+                      className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-1.5 mr-1 rounded hover:bg-red-500/10 text-[var(--notion-text-muted)] hover:text-red-500"
+                      title="Delete custom template"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
               ))}
             </div>
           </div>
@@ -122,25 +178,37 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({
             )}
 
             <div className="p-6 space-y-4 flex-1">
-              <div className="flex items-start justify-between gap-4">
-                <div>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
                   <div className="text-3xl mb-1">{selected.icon}</div>
                   <h3 className="text-xl font-bold text-[var(--notion-text)]">{selected.name}</h3>
                   <p className="text-xs text-[var(--notion-text-muted)] mt-1">
                     {selected.description}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onUseTemplate(selected);
-                    onClose();
-                  }}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md text-xs font-medium bg-[var(--notion-accent)] text-white hover:bg-[var(--notion-accent-hover)] transition-colors shrink-0"
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>Use template</span>
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  {onExportTemplate && (
+                    <button
+                      type="button"
+                      onClick={() => onExportTemplate(selected)}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium border border-[var(--notion-border-strong)] bg-[var(--notion-bg)] text-[var(--notion-text)] hover:bg-[var(--notion-hover)] transition-colors"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Export .json</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onUseTemplate(selected);
+                      onClose();
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md text-xs font-medium bg-[var(--notion-accent)] text-white hover:bg-[var(--notion-accent-hover)] transition-colors"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Use template</span>
+                  </button>
+                </div>
               </div>
 
               <div className="rounded-lg border border-[var(--notion-border)] bg-[var(--notion-surface-muted)]/35 p-4 space-y-2">
@@ -148,11 +216,31 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({
                   Preview structure
                 </div>
                 {selected.isDatabase ? (
-                  <div className="text-xs text-[var(--notion-text-secondary)]">
-                    Includes a full-page multi-view database with Name, Status, Tags, Due Date,
-                    Priority, and Done columns across Table, Board, List, Calendar, and Gallery
-                    views.
-                  </div>
+                  selected.database ? (
+                    <div className="space-y-2">
+                      <div className="text-xs text-[var(--notion-text-secondary)]">
+                        Includes a full-page database with{' '}
+                        <strong>{selected.database.columns.length} properties</strong> and{' '}
+                        <strong>{selected.database.rows.length} rows</strong>.
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {selected.database.columns.map((col) => (
+                          <span
+                            key={col.id}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[var(--notion-bg)] border border-[var(--notion-border)] text-[11px] text-[var(--notion-text-secondary)]"
+                          >
+                            <FileSpreadsheet className="w-3 h-3 opacity-70" />
+                            <span>{col.name}</span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-[var(--notion-text-secondary)]">
+                      Includes a full-page multi-view database with Name, Status, Category, and Due Date
+                      columns across Overview, Status, Calendar, and Category views.
+                    </div>
+                  )
                 ) : (
                   <div className="space-y-1.5">
                     {selected.blocks.map((blk, i) => (

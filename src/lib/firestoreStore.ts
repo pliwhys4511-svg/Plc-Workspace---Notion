@@ -732,3 +732,158 @@ export async function cloudDeleteComment(
     handleFirestoreError(err, OperationType.DELETE, path);
   }
 }
+
+export async function cloudCreateProjectBundle(
+  uid: string,
+  bundle: {
+    page: Page;
+    blocks: Block[];
+    database?: Database;
+    rowPages: Page[];
+    rowBlocksByPage: Record<string, Block[]>;
+  },
+): Promise<void> {
+  const stage1Ops: Array<(batch: ReturnType<typeof writeBatch>) => void> = [];
+  const stage2Ops: Array<(batch: ReturnType<typeof writeBatch>) => void> = [];
+
+  const mainPageId = ensureValidFirestoreId(bundle.page.id, 'page');
+  stage1Ops.push((batch) => {
+    batch.set(
+      doc(db, 'users', uid, 'pages', mainPageId),
+      sanitizePageForCloud(uid, bundle.page, serverTimestamp(), serverTimestamp()),
+    );
+  });
+
+  if (bundle.database) {
+    const dbId = ensureValidFirestoreId(bundle.database.id, 'db');
+    const database = bundle.database;
+    stage1Ops.push((batch) => {
+      batch.set(
+        doc(db, 'users', uid, 'databases', dbId),
+        sanitizeDatabaseForCloud(uid, database, serverTimestamp()),
+      );
+    });
+    for (const row of database.rows) {
+      const rowId = ensureValidFirestoreId(row.id, 'row');
+      stage2Ops.push((batch) => {
+        batch.set(
+          doc(db, 'users', uid, 'dbRows', rowId),
+          sanitizeRowForCloud(uid, row, serverTimestamp(), serverTimestamp()),
+        );
+      });
+    }
+  }
+
+  for (const rp of bundle.rowPages) {
+    const rpId = ensureValidFirestoreId(rp.id, 'rowp');
+    stage1Ops.push((batch) => {
+      batch.set(
+        doc(db, 'users', uid, 'pages', rpId),
+        sanitizePageForCloud(uid, rp, serverTimestamp(), serverTimestamp()),
+      );
+    });
+  }
+
+  for (const blk of bundle.blocks) {
+    const blkId = ensureValidFirestoreId(blk.id, 'blk');
+    stage2Ops.push((batch) => {
+      batch.set(
+        doc(db, 'users', uid, 'blocks', blkId),
+        sanitizeBlockForCloud(uid, blk, serverTimestamp()),
+      );
+    });
+  }
+
+  for (const list of Object.values(bundle.rowBlocksByPage)) {
+    for (const blk of list) {
+      const blkId = ensureValidFirestoreId(blk.id, 'blk');
+      stage2Ops.push((batch) => {
+        batch.set(
+          doc(db, 'users', uid, 'blocks', blkId),
+          sanitizeBlockForCloud(uid, blk, serverTimestamp()),
+        );
+      });
+    }
+  }
+
+  try {
+    await commitOperationsInBatches(stage1Ops);
+    await commitOperationsInBatches(stage2Ops);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.CREATE, `users/${uid}/pages/${mainPageId}`);
+  }
+}
+
+export async function cloudImportDatabaseChanges(
+  uid: string,
+  params: {
+    database: Database;
+    addedRows: DatabaseRow[];
+    addedRowPages: Page[];
+    addedBlocksByPage: Record<string, Block[]>;
+    removedRowIds: string[];
+    removedRowPageIds: string[];
+  },
+): Promise<void> {
+  const safeDbId = ensureValidFirestoreId(params.database.id, 'db');
+  const stage1Ops: Array<(batch: ReturnType<typeof writeBatch>) => void> = [];
+  const stage2Ops: Array<(batch: ReturnType<typeof writeBatch>) => void> = [];
+
+  for (const rowId of params.removedRowIds) {
+    const safeRowId = ensureValidFirestoreId(rowId, 'row');
+    stage1Ops.push((batch) => {
+      batch.delete(doc(db, 'users', uid, 'dbRows', safeRowId));
+    });
+  }
+
+  for (const rpId of params.removedRowPageIds) {
+    const safeRpId = ensureValidFirestoreId(rpId, 'rowp');
+    stage1Ops.push((batch) => {
+      batch.delete(doc(db, 'users', uid, 'pages', safeRpId));
+    });
+  }
+
+  for (const rp of params.addedRowPages) {
+    const safeRpId = ensureValidFirestoreId(rp.id, 'rowp');
+    stage1Ops.push((batch) => {
+      batch.set(
+        doc(db, 'users', uid, 'pages', safeRpId),
+        sanitizePageForCloud(uid, rp, serverTimestamp(), serverTimestamp()),
+      );
+    });
+  }
+
+  for (const row of params.addedRows) {
+    const safeRowId = ensureValidFirestoreId(row.id, 'row');
+    stage2Ops.push((batch) => {
+      batch.set(
+        doc(db, 'users', uid, 'dbRows', safeRowId),
+        sanitizeRowForCloud(uid, row, serverTimestamp(), serverTimestamp()),
+      );
+    });
+  }
+
+  for (const list of Object.values(params.addedBlocksByPage)) {
+    for (const blk of list) {
+      const safeBlkId = ensureValidFirestoreId(blk.id, 'blk');
+      stage2Ops.push((batch) => {
+        batch.set(
+          doc(db, 'users', uid, 'blocks', safeBlkId),
+          sanitizeBlockForCloud(uid, blk, serverTimestamp()),
+        );
+      });
+    }
+  }
+
+  try {
+    await cloudUpdateDatabase(uid, safeDbId, {
+      columns: params.database.columns,
+      groupByColumnId: params.database.groupByColumnId,
+    });
+    await commitOperationsInBatches(stage1Ops);
+    await commitOperationsInBatches(stage2Ops);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, `users/${uid}/databases/${safeDbId}`);
+  }
+}
+

@@ -34,14 +34,33 @@ import {
 } from './lib/offlineSync';
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import type { NotionTemplate } from './lib/templates';
+import {
+  deleteCustomTemplate,
+  loadCustomTemplates,
+  packageToNotionTemplate,
+  saveCustomTemplate,
+} from './lib/customTemplates';
+import {
+  createProjectFromTemplateImport,
+  exportDatabaseToCsv,
+  exportDatabaseToMarkdown,
+  exportPageToTemplatePackage,
+  mergeImportIntoDatabase,
+  safeFileSlug,
+  triggerFileDownload,
+  type ParsedTemplateImport,
+  type ProjectTemplatePackage,
+} from './lib/templateTransfer';
 import { auth } from './lib/firebase';
 import {
   cloudAddComment,
   cloudAddDatabaseRow,
   cloudCreatePage,
+  cloudCreateProjectBundle,
   cloudDeleteComment,
   cloudDeleteDatabaseRow,
   cloudDeletePageTree,
+  cloudImportDatabaseChanges,
   cloudReplaceWorkspace,
   cloudSavePageBlocks,
   cloudUpdateComment,
@@ -62,6 +81,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { RowPeekModal } from './components/RowPeekModal';
 import { LockScreen } from './components/LockScreen';
 import { TemplatesModal } from './components/TemplatesModal';
+import { UploadTemplateModal, type TemplateImportMode } from './components/UploadTemplateModal';
 import { CommentsDrawer } from './components/CommentsDrawer';
 import { OfflineIndicator } from './components/PWAComponents';
 
@@ -118,6 +138,11 @@ export default function App() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [uploadTargetDbId, setUploadTargetDbId] = useState<string | null>(null);
+  const [customTemplates, setCustomTemplates] = useState<NotionTemplate[]>(() =>
+    loadCustomTemplates(),
+  );
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [peekTarget, setPeekTarget] = useState<{ dbId: string; rowId: string } | null>(null);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
@@ -555,6 +580,53 @@ export default function App() {
   };
 
   const handleUseTemplate = async (template: NotionTemplate) => {
+    if (!workspace) return;
+    if (template.isDatabase && template.database) {
+      const parsed: ParsedTemplateImport = {
+        sourceFormat: 'template-json',
+        name: template.name,
+        icon: template.icon,
+        cover: template.cover,
+        category: template.category,
+        description: template.description,
+        isDatabase: true,
+        fullWidth: true,
+        activeView: template.database.activeView,
+        groupByColumnId: template.database.groupByColumnId,
+        columns: template.database.columns,
+        rows: template.database.rows,
+        blocks: template.blocks,
+        summary: template.description,
+      };
+      const bundle = createProjectFromTemplateImport(parsed, workspace.pages.length, null);
+      const nextWs: WorkspaceData = {
+        ...workspace,
+        pages: [...workspace.pages, bundle.page, ...bundle.rowPages],
+        blocksByPage: {
+          ...workspace.blocksByPage,
+          [bundle.page.id]: bundle.blocks,
+          ...bundle.rowBlocksByPage,
+        },
+        databases: bundle.database
+          ? { ...workspace.databases, [bundle.database.id]: bundle.database }
+          : workspace.databases,
+      };
+      setWorkspace(nextWs);
+      saveCachedWorkspace(nextWs);
+      handleSelectPage(bundle.page.id);
+      try {
+        if (activeCloudUid) {
+          await cloudCreateProjectBundle(activeCloudUid, bundle);
+        } else {
+          await api.importWorkspace(nextWs);
+        }
+        showToast(`Created project "${template.name}"`);
+      } catch {
+        showToast('Created locally (sync pending)');
+      }
+      return;
+    }
+
     await handleCreatePage({
       parentId: null,
       title: template.name,
@@ -564,6 +636,239 @@ export default function App() {
       blocks: template.blocks,
     });
     showToast(`Created from "${template.name}"`);
+  };
+
+  const handleOpenUploadTemplate = (targetDbId?: string) => {
+    const resolvedDbId =
+      targetDbId ?? (activePage?.isDatabase ? activePage.databaseId ?? null : null);
+    setUploadTargetDbId(resolvedDbId);
+    setUploadModalOpen(true);
+  };
+
+  const handleExportProjectTemplate = () => {
+    if (!workspace || !activePage) return;
+    const pkg = exportPageToTemplatePackage(
+      activePage,
+      workspace.blocksByPage[activePage.id] ?? [],
+      workspace.databases,
+      workspace.blocksByPage,
+    );
+    triggerFileDownload(
+      `${safeFileSlug(activePage.title)}.template.json`,
+      JSON.stringify(pkg, null, 2),
+      'application/json;charset=utf-8',
+    );
+    showToast('Project template exported (.json)');
+  };
+
+  const handleExportProjectCsv = (dbId?: string) => {
+    if (!workspace || !activePage) return;
+    const resolvedId = dbId ?? (activePage.isDatabase ? activePage.databaseId : undefined);
+    const db = resolvedId ? workspace.databases[resolvedId] : undefined;
+    if (!db) {
+      showToast('No database found on this page');
+      return;
+    }
+    const csv = exportDatabaseToCsv(db);
+    triggerFileDownload(
+      `${safeFileSlug(db.title || activePage.title)}.csv`,
+      csv,
+      'text/csv;charset=utf-8',
+      true,
+    );
+    showToast('Exported Notion CSV (.csv)');
+  };
+
+  const handleExportProjectMarkdown = (dbId: string) => {
+    if (!workspace || !activePage) return;
+    const db = workspace.databases[dbId];
+    if (!db) return;
+    const md = exportDatabaseToMarkdown(activePage, db);
+    triggerFileDownload(
+      `${safeFileSlug(db.title || activePage.title)}.md`,
+      md,
+      'text/markdown;charset=utf-8',
+    );
+    showToast('Exported Markdown table (.md)');
+  };
+
+  const handleSavePageAsTemplate = () => {
+    if (!workspace || !activePage) return;
+    const pkg = exportPageToTemplatePackage(
+      activePage,
+      workspace.blocksByPage[activePage.id] ?? [],
+      workspace.databases,
+      workspace.blocksByPage,
+    );
+    const tpl = packageToNotionTemplate(pkg);
+    const updated = saveCustomTemplate(tpl);
+    setCustomTemplates(updated);
+    showToast(`Saved "${tpl.name}" to Templates`);
+  };
+
+  const handleExportGalleryTemplate = (tpl: NotionTemplate) => {
+    const pkg: ProjectTemplatePackage = {
+      format: 'plc-notion-template-v1',
+      id: tpl.id,
+      exportedAt: new Date().toISOString(),
+      name: tpl.name,
+      icon: tpl.icon,
+      cover: tpl.cover,
+      category: tpl.category,
+      description: tpl.description,
+      isDatabase: Boolean(tpl.isDatabase),
+      ...(tpl.database ? { database: tpl.database } : {}),
+      blocks: tpl.blocks,
+    };
+    triggerFileDownload(
+      `${safeFileSlug(tpl.name)}.template.json`,
+      JSON.stringify(pkg, null, 2),
+      'application/json;charset=utf-8',
+    );
+    showToast(`Exported "${tpl.name}" (.json)`);
+  };
+
+  const handleDeleteCustomTemplate = (templateId: string) => {
+    setCustomTemplates(deleteCustomTemplate(templateId));
+    showToast('Custom template removed');
+  };
+
+  const handleConfirmTemplateImport = async (
+    parsed: ParsedTemplateImport,
+    mode: TemplateImportMode,
+    saveToGallery: boolean,
+  ) => {
+    if (!workspace) return;
+
+    if (saveToGallery) {
+      const savedTpl = packageToNotionTemplate(parsed);
+      setCustomTemplates(saveCustomTemplate(savedTpl));
+    }
+
+    const targetDbId =
+      uploadTargetDbId ?? (activePage?.isDatabase ? activePage.databaseId ?? null : null);
+    const targetDb = targetDbId ? workspace.databases[targetDbId] : undefined;
+
+    if (mode !== 'new_page' && targetDb && activePage) {
+      const mergeMode = mode === 'replace' ? 'replace' : 'append';
+      const merged = mergeImportIntoDatabase(targetDb, parsed, mergeMode, activePage.id);
+      const removedRowPageSet = new Set(merged.removedRowPageIds);
+      const nextBlocksByPage = { ...workspace.blocksByPage };
+      for (const rpId of merged.removedRowPageIds) {
+        delete nextBlocksByPage[rpId];
+      }
+      Object.assign(nextBlocksByPage, merged.addedBlocksByPage);
+
+      const nextWs: WorkspaceData = {
+        ...workspace,
+        pages: [
+          ...workspace.pages.filter((p) => !removedRowPageSet.has(p.id)),
+          ...merged.addedRowPages,
+        ],
+        blocksByPage: nextBlocksByPage,
+        databases: {
+          ...workspace.databases,
+          [targetDb.id]: merged.nextDatabase,
+        },
+      };
+
+      setWorkspace(nextWs);
+      saveCachedWorkspace(nextWs);
+
+      if (activeCloudUid) {
+        await cloudImportDatabaseChanges(activeCloudUid, {
+          database: merged.nextDatabase,
+          addedRows: merged.addedRows,
+          addedRowPages: merged.addedRowPages,
+          addedBlocksByPage: merged.addedBlocksByPage,
+          removedRowIds: merged.removedRowIds,
+          removedRowPageIds: merged.removedRowPageIds,
+        });
+      } else {
+        await api.importWorkspace(nextWs);
+      }
+
+      showToast(
+        mergeMode === 'replace'
+          ? `Replaced "${targetDb.title}" (${merged.addedRows.length} rows)`
+          : `Added ${merged.addedRows.length} rows to "${targetDb.title}"`,
+      );
+      return;
+    }
+
+    if (mode === 'replace' && activePage && !activePage.isDatabase) {
+      const nextBlocks: Block[] =
+        parsed.blocks.length > 0
+          ? parsed.blocks.map((b, idx) => ({
+              id: createId('blk'),
+              pageId: activePage.id,
+              type: b.type,
+              content: b.content,
+              checked: b.checked,
+              open: b.open,
+              details: b.details,
+              icon: b.icon,
+              language: b.language,
+              color: b.color,
+              indent: b.indent,
+              rows: b.rows,
+              hasHeaderRow: b.hasHeaderRow,
+              url: b.url,
+              caption: b.caption,
+              position: idx,
+            }))
+          : parsed.columns.length > 0
+          ? [
+              {
+                id: createId('blk'),
+                pageId: activePage.id,
+                type: 'table',
+                content: '',
+                hasHeaderRow: true,
+                rows: [
+                  parsed.columns.map((c) => c.name),
+                  ...parsed.rows.map((r) =>
+                    parsed.columns.map((c) => String(r.cells[c.id] ?? '')),
+                  ),
+                ],
+                position: 0,
+              },
+            ]
+          : [];
+
+      if (nextBlocks.length > 0) {
+        handleUpdateBlocks(activePage.id, nextBlocks);
+        showToast(`Replaced "${activePage.title}" from template`);
+        return;
+      }
+    }
+
+    // Default / new_page: create full new project page (+ database & rows if applicable)
+    const bundle = createProjectFromTemplateImport(parsed, workspace.pages.length, null);
+    const nextWs: WorkspaceData = {
+      ...workspace,
+      pages: [...workspace.pages, bundle.page, ...bundle.rowPages],
+      blocksByPage: {
+        ...workspace.blocksByPage,
+        [bundle.page.id]: bundle.blocks,
+        ...bundle.rowBlocksByPage,
+      },
+      databases: bundle.database
+        ? { ...workspace.databases, [bundle.database.id]: bundle.database }
+        : workspace.databases,
+    };
+
+    setWorkspace(nextWs);
+    saveCachedWorkspace(nextWs);
+    handleSelectPage(bundle.page.id);
+
+    if (activeCloudUid) {
+      await cloudCreateProjectBundle(activeCloudUid, bundle);
+    } else {
+      await api.importWorkspace(nextWs);
+    }
+
+    showToast(`Imported "${bundle.page.title}"`);
   };
 
   const handleUpdatePage = useCallback(
@@ -1385,6 +1690,10 @@ export default function App() {
               onCopyMarkdown={handleCopyMarkdown}
               onDownloadMarkdown={handleDownloadMarkdown}
               onDownloadWorkspaceJson={handleDownloadWorkspaceJson}
+              onOpenUploadTemplate={() => handleOpenUploadTemplate()}
+              onExportProjectTemplate={handleExportProjectTemplate}
+              onExportProjectCsv={() => handleExportProjectCsv()}
+              onSaveAsTemplate={handleSavePageAsTemplate}
             />
 
             <PageCanvas
@@ -1402,6 +1711,11 @@ export default function App() {
               onDeleteDatabaseRow={handleDeleteDatabaseRow}
               onOpenRowPage={(dbId, row) => setPeekTarget({ dbId, rowId: row.id })}
               onOpenComments={() => setCommentsOpen(true)}
+              onOpenUploadTemplate={(dbId) => handleOpenUploadTemplate(dbId)}
+              onExportProjectTemplate={handleExportProjectTemplate}
+              onExportProjectCsv={(dbId) => handleExportProjectCsv(dbId)}
+              onExportProjectMarkdown={(dbId) => handleExportProjectMarkdown(dbId)}
+              onSaveAsTemplate={handleSavePageAsTemplate}
             />
           </>
         ) : (
@@ -1433,6 +1747,22 @@ export default function App() {
         isOpen={templatesOpen}
         onClose={() => setTemplatesOpen(false)}
         onUseTemplate={handleUseTemplate}
+        customTemplates={customTemplates}
+        onOpenUploadTemplate={() => handleOpenUploadTemplate()}
+        onExportTemplate={handleExportGalleryTemplate}
+        onDeleteCustomTemplate={handleDeleteCustomTemplate}
+      />
+
+      <UploadTemplateModal
+        isOpen={uploadModalOpen}
+        onClose={() => setUploadModalOpen(false)}
+        activePageTitle={activePage?.title}
+        activePageIsDatabase={Boolean(
+          (uploadTargetDbId && workspace.databases[uploadTargetDbId]) ||
+            (activePage?.isDatabase && activePage.databaseId),
+        )}
+        canTargetCurrentPage={Boolean(activePage && !activePage.locked)}
+        onConfirmImport={handleConfirmTemplateImport}
       />
 
       <CommentsDrawer

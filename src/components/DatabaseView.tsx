@@ -1,15 +1,21 @@
 import React, { useMemo, useState } from 'react';
 import {
   ArrowDownUp,
+  BookmarkPlus,
   Calendar,
   CalendarDays,
   Check,
   CheckSquare,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   CircleDot,
   Columns3,
+  Download,
   ExternalLink,
+  FileJson,
+  FileSpreadsheet,
+  FileText,
   Hash,
   ListFilter,
   Plus,
@@ -18,6 +24,7 @@ import {
   Tag,
   Trash2,
   Type,
+  Upload,
   User,
 } from 'lucide-react';
 import type {
@@ -48,6 +55,11 @@ interface DatabaseViewProps {
   onUpdateRow: (rowId: string, cells: Record<string, DatabaseCellValue>) => void;
   onDeleteRow: (rowId: string) => void;
   onOpenRowPage: (row: DatabaseRow) => void;
+  onOpenUploadTemplate?: () => void;
+  onExportProjectTemplate?: () => void;
+  onExportProjectCsv?: () => void;
+  onExportProjectMarkdown?: () => void;
+  onSaveAsTemplate?: () => void;
 }
 
 function columnIcon(type: DatabaseColumnType) {
@@ -78,6 +90,11 @@ export const DatabaseView: React.FC<DatabaseViewProps> = ({
   onUpdateRow,
   onDeleteRow,
   onOpenRowPage,
+  onOpenUploadTemplate,
+  onExportProjectTemplate,
+  onExportProjectCsv,
+  onExportProjectMarkdown,
+  onSaveAsTemplate,
 }) => {
   const [search, setSearch] = useState('');
   const [filterVal, setFilterVal] = useState('');
@@ -87,12 +104,17 @@ export const DatabaseView: React.FC<DatabaseViewProps> = ({
   const [draggedRowId, setDraggedRowId] = useState<string | null>(null);
   const [dragOverColKey, setDragOverColKey] = useState<string | null>(null);
   const [addPropOpen, setAddPropOpen] = useState(false);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [newPropName, setNewPropName] = useState('');
   const [newPropType, setNewPropType] = useState<DatabaseColumnType>('select');
   const [calendarMonth, setCalendarMonth] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
   });
+
+  const hasExportActions = Boolean(
+    onExportProjectTemplate || onExportProjectCsv || onExportProjectMarkdown || onSaveAsTemplate,
+  );
 
   const normalizedView: 'table' | 'status' | 'calendar' | 'category' =
     database.activeView === 'board' || database.activeView === 'status'
@@ -531,7 +553,10 @@ export const DatabaseView: React.FC<DatabaseViewProps> = ({
           <div className="relative">
             <button
               type="button"
-              onClick={() => setAddPropOpen((v) => !v)}
+              onClick={() => {
+                setExportMenuOpen(false);
+                setAddPropOpen((v) => !v);
+              }}
               className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs text-[var(--notion-text-secondary)] hover:bg-[var(--notion-hover)] whitespace-nowrap shrink-0"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -585,6 +610,113 @@ export const DatabaseView: React.FC<DatabaseViewProps> = ({
               </form>
             )}
           </div>
+
+          {onOpenUploadTemplate && (
+            <button
+              type="button"
+              onClick={() => {
+                setAddPropOpen(false);
+                setExportMenuOpen(false);
+                onOpenUploadTemplate();
+              }}
+              title="Upload template Notion (.csv, .md, .json)"
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-[var(--notion-text-secondary)] border border-[var(--notion-border)] hover:bg-[var(--notion-hover)] hover:text-[var(--notion-text)] transition-colors whitespace-nowrap shrink-0"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              <span>Upload</span>
+            </button>
+          )}
+
+          {hasExportActions && (
+            <div className="relative">
+              <button
+                type="button"
+                aria-expanded={exportMenuOpen}
+                aria-haspopup="menu"
+                onClick={() => {
+                  setAddPropOpen(false);
+                  setExportMenuOpen((v) => !v);
+                }}
+                title="Export project & Notion templates"
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-[var(--notion-text-secondary)] border border-[var(--notion-border)] hover:bg-[var(--notion-hover)] hover:text-[var(--notion-text)] transition-colors whitespace-nowrap shrink-0"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Export</span>
+                <ChevronDown className="w-3 h-3 opacity-70" />
+              </button>
+
+              {exportMenuOpen && (
+                <div
+                  role="menu"
+                  aria-label="Export database template options"
+                  className="absolute right-0 top-full mt-1 z-40 w-60 rounded-lg bg-[var(--notion-popover)] border border-[var(--notion-border-strong)] shadow-[var(--notion-shadow)] p-1.5 space-y-0.5"
+                >
+                  <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--notion-text-faint)]">
+                    Export Notion Template
+                  </div>
+                  {onExportProjectTemplate && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setExportMenuOpen(false);
+                        onExportProjectTemplate();
+                      }}
+                      className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-left text-[var(--notion-text)] hover:bg-[var(--notion-hover)]"
+                    >
+                      <FileJson className="w-3.5 h-3.5 text-[var(--notion-accent)] shrink-0" />
+                      <span>Export Template (.json)</span>
+                    </button>
+                  )}
+                  {onExportProjectCsv && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setExportMenuOpen(false);
+                        onExportProjectCsv();
+                      }}
+                      className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-left text-[var(--notion-text)] hover:bg-[var(--notion-hover)]"
+                    >
+                      <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span>Export Notion CSV (.csv)</span>
+                    </button>
+                  )}
+                  {onExportProjectMarkdown && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setExportMenuOpen(false);
+                        onExportProjectMarkdown();
+                      }}
+                      className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-left text-[var(--notion-text)] hover:bg-[var(--notion-hover)]"
+                    >
+                      <FileText className="w-3.5 h-3.5 text-[var(--notion-text-muted)] shrink-0" />
+                      <span>Export Markdown (.md)</span>
+                    </button>
+                  )}
+                  {onSaveAsTemplate && (
+                    <>
+                      <div className="my-1 border-t border-[var(--notion-border)]" />
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setExportMenuOpen(false);
+                          onSaveAsTemplate();
+                        }}
+                        className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-left text-[var(--notion-text)] hover:bg-[var(--notion-hover)]"
+                      >
+                        <BookmarkPlus className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                        <span>Save as Reusable Template</span>
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           <button
             type="button"

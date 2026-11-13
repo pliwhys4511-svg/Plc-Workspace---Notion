@@ -1,4 +1,10 @@
-import type { Block, BlockType } from './types';
+import type {
+  Block,
+  BlockType,
+  DatabaseColumn,
+  DatabaseCellValue,
+  DatabaseViewType,
+} from './types';
 
 export interface NotionTemplate {
   id: string;
@@ -8,7 +14,19 @@ export interface NotionTemplate {
   category: string;
   description: string;
   isDatabase?: boolean;
+  isCustom?: boolean;
   blocks: Array<Partial<Block> & { type: BlockType; content: string }>;
+  database?: {
+    title: string;
+    icon: string;
+    activeView: DatabaseViewType;
+    groupByColumnId: string;
+    columns: DatabaseColumn[];
+    rows: Array<{
+      cells: Record<string, DatabaseCellValue>;
+      blocks?: Array<Partial<Block> & { type: BlockType; content: string }>;
+    }>;
+  };
 }
 
 export const NOTION_TEMPLATES: NotionTemplate[] = [

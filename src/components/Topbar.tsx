@@ -1,10 +1,13 @@
 import React, { useState } from 'react';
 import {
+  BookmarkPlus,
   Check,
   ChevronsRight,
   Copy,
   Download,
   FileDown,
+  FileJson,
+  FileSpreadsheet,
   FileText,
   Lock,
   MessageSquare,
@@ -14,6 +17,7 @@ import {
   Trash2,
   Undo2,
   Unlock,
+  Upload,
 } from 'lucide-react';
 import type { Page, PageFont } from '../lib/types';
 import { TopbarOfflineBadge } from './PWAComponents';
@@ -36,6 +40,10 @@ interface TopbarProps {
   onCopyMarkdown: () => void;
   onDownloadMarkdown: () => void;
   onDownloadWorkspaceJson: () => void;
+  onOpenUploadTemplate?: () => void;
+  onExportProjectTemplate?: () => void;
+  onExportProjectCsv?: () => void;
+  onSaveAsTemplate?: () => void;
 }
 
 export const Topbar: React.FC<TopbarProps> = ({
@@ -56,6 +64,10 @@ export const Topbar: React.FC<TopbarProps> = ({
   onCopyMarkdown,
   onDownloadMarkdown,
   onDownloadWorkspaceJson,
+  onOpenUploadTemplate,
+  onExportProjectTemplate,
+  onExportProjectCsv,
+  onSaveAsTemplate,
 }) => {
   const [shareOpen, setShareOpen] = useState(false);
   const [styleOpen, setStyleOpen] = useState(false);
@@ -193,12 +205,69 @@ export const Topbar: React.FC<TopbarProps> = ({
 
         {shareOpen && (
           <div
-            className="absolute right-0 top-10 z-50 w-64 rounded-xl bg-[var(--notion-popover)] border border-[var(--notion-border-strong)] shadow-[var(--notion-shadow)] p-2 space-y-1"
+            className="absolute right-0 top-10 z-50 w-68 rounded-xl bg-[var(--notion-popover)] border border-[var(--notion-border-strong)] shadow-[var(--notion-shadow)] p-2 space-y-1"
             role="dialog"
             aria-label="Export page"
           >
             <div className="px-2 py-1 text-[11px] font-semibold text-[var(--notion-text-muted)]">
-              Export & Backup
+              Notion Template &amp; Project
+            </div>
+            {onOpenUploadTemplate && (
+              <button
+                type="button"
+                onClick={() => {
+                  setShareOpen(false);
+                  onOpenUploadTemplate();
+                }}
+                className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-md text-xs text-[var(--notion-text)] hover:bg-[var(--notion-hover)]"
+              >
+                <Upload className="w-3.5 h-3.5 text-[var(--notion-accent)]" />
+                <span>Upload / Import Template...</span>
+              </button>
+            )}
+            {onExportProjectTemplate && (
+              <button
+                type="button"
+                onClick={() => {
+                  onExportProjectTemplate();
+                  setShareOpen(false);
+                }}
+                className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-md text-xs text-[var(--notion-text)] hover:bg-[var(--notion-hover)]"
+              >
+                <FileJson className="w-3.5 h-3.5 text-[var(--notion-text-muted)]" />
+                <span>Export Project Template (.json)</span>
+              </button>
+            )}
+            {activePage.isDatabase && onExportProjectCsv && (
+              <button
+                type="button"
+                onClick={() => {
+                  onExportProjectCsv();
+                  setShareOpen(false);
+                }}
+                className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-md text-xs text-[var(--notion-text)] hover:bg-[var(--notion-hover)]"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Export Database CSV (.csv)</span>
+              </button>
+            )}
+            {onSaveAsTemplate && (
+              <button
+                type="button"
+                onClick={() => {
+                  onSaveAsTemplate();
+                  setShareOpen(false);
+                }}
+                className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-md text-xs text-[var(--notion-text)] hover:bg-[var(--notion-hover)]"
+              >
+                <BookmarkPlus className="w-3.5 h-3.5 text-amber-500" />
+                <span>Save as Reusable Template</span>
+              </button>
+            )}
+
+            <div className="my-1 border-t border-[var(--notion-border)]" />
+            <div className="px-2 py-1 text-[11px] font-semibold text-[var(--notion-text-muted)]">
+              Markdown &amp; Workspace
             </div>
             <button
               type="button"

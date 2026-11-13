@@ -1,11 +1,13 @@
 import React, { useCallback, useRef, useState } from 'react';
 import {
+  Download,
   Image as ImageIcon,
   Lock,
   MessageSquare,
   Plus,
   Smile,
   SlidersHorizontal,
+  Upload,
 } from 'lucide-react';
 import type {
   Block,
@@ -120,6 +122,11 @@ interface PageCanvasProps {
   onDeleteDatabaseRow: (dbId: string, rowId: string) => void;
   onOpenRowPage: (dbId: string, row: DatabaseRow) => void;
   onOpenComments?: () => void;
+  onOpenUploadTemplate?: (targetDbId?: string) => void;
+  onExportProjectTemplate?: () => void;
+  onExportProjectCsv?: (dbId: string) => void;
+  onExportProjectMarkdown?: (dbId: string) => void;
+  onSaveAsTemplate?: () => void;
 }
 
 export const PageCanvas: React.FC<PageCanvasProps> = ({
@@ -137,6 +144,11 @@ export const PageCanvas: React.FC<PageCanvasProps> = ({
   onDeleteDatabaseRow,
   onOpenRowPage,
   onOpenComments,
+  onOpenUploadTemplate,
+  onExportProjectTemplate,
+  onExportProjectCsv,
+  onExportProjectMarkdown,
+  onSaveAsTemplate,
 }) => {
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
   const [coverPickerOpen, setCoverPickerOpen] = useState(false);
@@ -596,6 +608,26 @@ export const PageCanvas: React.FC<PageCanvasProps> = ({
                   <span>Add comment</span>
                 </button>
               )}
+              {!page.isDatabase && onOpenUploadTemplate && (
+                <button
+                  type="button"
+                  onClick={() => onOpenUploadTemplate()}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded hover:bg-[var(--notion-hover)]"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>Upload template</span>
+                </button>
+              )}
+              {!page.isDatabase && onExportProjectTemplate && (
+                <button
+                  type="button"
+                  onClick={onExportProjectTemplate}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded hover:bg-[var(--notion-hover)]"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Export template</span>
+                </button>
+              )}
             </div>
           )}
 
@@ -637,6 +669,17 @@ export const PageCanvas: React.FC<PageCanvasProps> = ({
             onUpdateRow={(rowId, cells) => onUpdateDatabaseRow(pageDatabase.id, rowId, cells)}
             onDeleteRow={(rowId) => onDeleteDatabaseRow(pageDatabase.id, rowId)}
             onOpenRowPage={(row) => onOpenRowPage(pageDatabase.id, row)}
+            onOpenUploadTemplate={
+              onOpenUploadTemplate ? () => onOpenUploadTemplate(pageDatabase.id) : undefined
+            }
+            onExportProjectTemplate={onExportProjectTemplate}
+            onExportProjectCsv={
+              onExportProjectCsv ? () => onExportProjectCsv(pageDatabase.id) : undefined
+            }
+            onExportProjectMarkdown={
+              onExportProjectMarkdown ? () => onExportProjectMarkdown(pageDatabase.id) : undefined
+            }
+            onSaveAsTemplate={onSaveAsTemplate}
           />
         ) : (
           <>

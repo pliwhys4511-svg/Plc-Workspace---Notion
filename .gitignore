@@ -1,9 +1,9 @@
-node_modules/
-build/
-dist/
-dev-dist/
-data/
-coverage/
+/node_modules/
+/build/
+/dist/
+/dev-dist/
+/data/
+/coverage/
 .DS_Store
 *.log
 .env*

@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
-import { doc, getDocFromServer, getFirestore } from 'firebase/firestore';
+import { getFirestore } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
@@ -54,7 +54,7 @@ export function handleFirestoreError(
     : '';
   // Do not surface serialized Firebase user details (emails, UID, provider data)
   // in a visible dialog, and don't mistake denied permissions for an offline edit.
-  console.error('Firestore operation failed:', { operationType, path, code, message: source });
+  console.error('Firestore operation failed:', { operationType, path, code });
   if (/permission.denied|insufficient permissions/i.test(code + ' ' + source)) {
     throw new Error('Akses Firebase ditolak. Periksa Firestore Security Rules dan izin akun Google. Pilih Mode Lokal untuk menggunakan tracker di browser ini.');
   }
@@ -64,15 +64,3 @@ export function handleFirestoreError(
   throw new Error('Operasi Firebase gagal. Silakan periksa koneksi dan konfigurasi Cloud DB.');
 }
 
-async function testConnection() {
-  if (typeof window === 'undefined') return;
-  try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error('Please check your Firebase configuration.');
-    }
-  }
-}
-
-void testConnection();

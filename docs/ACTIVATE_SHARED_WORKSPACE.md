@@ -1,6 +1,6 @@
 # Activate PLC Workspace shared cloud editing
 
-**Current status:** This code is staged in pull request #11; the website should not be merged until Firestore rules are deployed to the **named database**, tested, and owner Cloud DB access is confirmed.
+**Activation states:** The website frontend can deploy first with a clearly labeled browser-local fallback if Firebase production rules deny access. **Real-time shared editing remains unavailable** until this repository's tested Firestore rules are published to the **named database** and approved editors complete onboarding.
 
 ## What is implemented
 
@@ -28,11 +28,11 @@ npx firebase-tools@14 deploy --project ordinal-shape-w5v9p --only firestore:rule
 The `firebase.json` in this branch **only configures the named PLC Workspace database**. The `--only firestore:rules` flag avoids deploying indexes or other services. Verify the ruleset is visible under the intended named database in Firebase/Google Cloud Console after publication. **Do not deploy to (default).**
 
 4. Verify on a test account that (a) the owner can read data, (b) an unapproved editor cannot, (c) after approval that editor can read and edit content, (d) after revocation the editor cannot access data.
-5. Only after checks pass, merge PR #11 into `main`; GitHub Pages will rebuild the frontend.
-6. The Admin signs in and opens Settings → Akses Tim & Workspace Bersama to copy the invitation link.
-7. Each editor opens that invitation URL, selects their name, signs into their own verified Google account, and requests access. Admin verifies the email before pressing Setujui.
+5. The frontend may be deployed first with the safe local fallback; note that this does **not** enable shared edits. After checks pass, verify the existing GitHub Pages deployment uses the team-authenticated frontend.
+6. Every team member can open the **same** PLC Workspace website URL. Admin signs in with the original Firebase owner Google account.
+7. Each editor selects their editor name, signs into their own verified Google account, and requests access. Admin verifies the email in Settings → Akses Tim before pressing Setujui.
 
-The Firebase app/connector is not connected to this ChatGPT conversation; publishing rules remotely cannot be performed via the GitHub plugin alone.
+Publishing rules remotely requires an authenticated Firebase CLI, Firebase Console, or a connected Firebase integration. The GitHub plugin alone cannot deploy these rules.
 
 ### Rollback
 

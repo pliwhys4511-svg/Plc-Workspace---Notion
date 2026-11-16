@@ -32,7 +32,7 @@ jobs:
 
       - name: Run unit tests & typecheck
         run: |
-          npx tsx --test src/lib/workspaceOps.test.ts src/lib/templateTransfer.test.ts src/lib/workspaceAudit.test.ts src/lib/accessTier.test.ts src/lib/plcCommTracker.test.ts src/lib/plcCommRestore.test.ts src/components/UploadTemplateModal.test.ts src/lib/cloudImportPlan.test.ts src/lib/firestoreOwnerQuery.test.ts src/lib/workspaceNavigation.test.ts
+          npx tsx --test src/lib/workspaceOps.test.ts src/lib/templateTransfer.test.ts src/lib/workspaceAudit.test.ts src/lib/accessTier.test.ts src/lib/plcCommTracker.test.ts src/lib/plcCommRestore.test.ts src/components/UploadTemplateModal.test.ts src/lib/cloudImportPlan.test.ts src/lib/firestoreOwnerQuery.test.ts src/lib/workspaceNavigation.test.ts src/lib/workspaceCreate.test.ts
           npm run lint
 
       - name: Build static offline PWA bundle

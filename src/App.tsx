@@ -76,6 +76,8 @@ import {
   subscribeCloudWorkspace,
 } from './lib/firestoreStore';
 import { Sidebar } from './components/Sidebar';
+import { CreateWorkspaceModal } from './components/CreateWorkspaceModal';
+import { buildWorkspaceProject, type WorkspaceProjectSelection } from './lib/workspaceCreate';
 import { Topbar } from './components/Topbar';
 import { PageCanvas } from './components/PageCanvas';
 import { SearchModal } from './components/SearchModal';
@@ -170,6 +172,10 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [creatorOpen, setCreatorOpen] = useState(false);
+  const [createContext, setCreateContext] = useState<{ parentId: string | null; preferDatabase: boolean }>({
+    parentId: null, preferDatabase: true,
+  });
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [uploadTargetDbId, setUploadTargetDbId] = useState<string | null>(null);
   const [customTemplates, setCustomTemplates] = useState<NotionTemplate[]>(() =>
@@ -449,6 +455,49 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
       setSaveState((curr) => (curr === 'saved' ? 'idle' : curr));
     }, 1500);
   }, []);
+
+  const openWorkspaceCreator = (opts?: { parentId?: string | null; isDatabase?: boolean }) => {
+    setCreateContext({
+      parentId: opts?.parentId ?? null,
+      preferDatabase: opts?.isDatabase ?? (opts?.parentId == null),
+    });
+    setCreatorOpen(true);
+  };
+
+  const handleCreateWorkspaceFromTemplate = async (
+    template: NotionTemplate | null,
+    selection: WorkspaceProjectSelection,
+  ) => {
+    if (!workspace) throw new Error('Workspace belum siap.');
+    if (cloudModeRequested && !activeCloudUid) {
+      throw new Error('Cloud DB belum tersambung. Gunakan Mode Lokal atau sambungkan Firebase terlebih dahulu.');
+    }
+    const bundle = buildWorkspaceProject(template, selection, workspace.pages.length);
+    const nextWs: WorkspaceData = {
+      ...workspace,
+      pages: [...workspace.pages, bundle.page, ...bundle.rowPages],
+      blocksByPage: {
+        ...workspace.blocksByPage,
+        [bundle.page.id]: bundle.blocks,
+        ...bundle.rowBlocksByPage,
+      },
+      databases: bundle.database
+        ? { ...workspace.databases, [bundle.database.id]: bundle.database }
+        : workspace.databases,
+    };
+
+    // Commit before showing success, so new projects do not disappear on reload.
+    if (activeCloudUid) {
+      await cloudCreateProjectBundle(activeCloudUid, bundle);
+      saveCachedCloudWorkspace(activeCloudUid, nextWs);
+    } else {
+      await api.importWorkspace(nextWs);
+      saveCachedWorkspace(nextWs);
+    }
+    setWorkspace(nextWs);
+    handleSelectPage(bundle.page.id);
+    showToast(`Project "${bundle.page.title}" dibuat. Template dapat diedit kapan saja.`);
+  };
 
   const handleCreatePage = async (opts?: {
     parentId?: string | null;
@@ -1816,7 +1865,7 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
         pages={workspace.pages}
         activePageId={activePage?.id ?? ''}
         onSelectPage={handleSelectPage}
-        onCreatePage={handleCreatePage}
+        onCreatePage={openWorkspaceCreator}
         onToggleFavorite={(id) => {
           const p = workspace.pages.find((x) => x.id === id);
           if (p) handleUpdatePage(id, { isFavorite: !p.isFavorite });
@@ -1871,7 +1920,7 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
               onUpdatePage={(patch) => handleUpdatePage(activePage.id, patch)}
               onUpdateBlocks={(blocks) => handleUpdateBlocks(activePage.id, blocks)}
               onSelectPage={handleSelectPage}
-              onCreateSubpage={(parentId) => handleCreatePage({ parentId })}
+              onCreateSubpage={(parentId) => openWorkspaceCreator({ parentId })}
               onUpdateDatabase={handleUpdateDatabase}
               onAddDatabaseRow={handleAddDatabaseRow}
               onUpdateDatabaseRow={handleUpdateDatabaseRow}
@@ -1892,7 +1941,7 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
             </p>
             <button
               type="button"
-              onClick={() => handleCreatePage({ parentId: null })}
+              onClick={() => openWorkspaceCreator({ parentId: null })}
               className="px-4 py-2 rounded-lg text-xs font-medium bg-[var(--notion-accent)] text-white"
             >
               Create First Page
@@ -1908,6 +1957,16 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
         databases={workspace.databases}
         onSelectPage={handleSelectPage}
         onClose={() => setSearchOpen(false)}
+      />
+
+      <CreateWorkspaceModal
+        isOpen={creatorOpen}
+        onClose={() => setCreatorOpen(false)}
+        onCreate={handleCreateWorkspaceFromTemplate}
+        parentId={createContext.parentId}
+        parentTitle={workspace.pages.find((p) => p.id === createContext.parentId)?.title}
+        preferDatabase={createContext.preferDatabase}
+        customTemplates={customTemplates}
       />
 
       <TemplatesModal

@@ -1,4 +1,5 @@
 import { createPlcCommTrackerColumns } from './plcCommTracker';
+import { PROJECT_STARTERS } from './projectStarters';
 import type {
   Block,
   BlockType,
@@ -31,6 +32,7 @@ export interface NotionTemplate {
 }
 
 export const NOTION_TEMPLATES: NotionTemplate[] = [
+  ...PROJECT_STARTERS,
   {
     id: 'tpl_meeting',
     name: 'Meeting Notes',

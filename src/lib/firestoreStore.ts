@@ -548,9 +548,7 @@ export async function cloudSavePageBlocks(
   const safePageId = ensureValidFirestoreId(pageId, 'page');
   const colPath = `users/${uid}/blocks`;
   try {
-    const existingSnap = await getDocs(
-      query(ownedCollection(uid, 'blocks'), where('pageId', '==', safePageId)),
-    );
+    const existingSnap = await getDocs(ownedCollection(uid, 'blocks'));
     const keepIds = new Set(blocks.map((b) => ensureValidFirestoreId(b.id, 'blk')));
     const ops: Array<(batch: ReturnType<typeof writeBatch>) => void> = [];
 
@@ -562,7 +560,7 @@ export async function cloudSavePageBlocks(
     }
 
     existingSnap.forEach((docSnap) => {
-      if (!keepIds.has(docSnap.id)) {
+      if (docSnap.data().pageId === safePageId && !keepIds.has(docSnap.id)) {
         ops.push((batch) => batch.delete(docSnap.ref));
       }
     });
@@ -589,18 +587,26 @@ export async function cloudDeletePageTree(
   const safeIds = pageIds.map((id) => ensureValidFirestoreId(id, 'page'));
 
   try {
+    // Query only by ownerId to satisfy Firestore security rules without
+    // requiring a composite index for ownerId + pageId.
+    const [blockSnap, commentSnap] = await Promise.all([
+      getDocs(ownedCollection(uid, 'blocks')),
+      getDocs(ownedCollection(uid, 'comments')),
+    ]);
+    const deleting = new Set(safeIds);
     for (const pid of safeIds) {
       ops.push((batch) => batch.delete(doc(db, 'users', uid, 'pages', pid)));
-      const blkSnap = await getDocs(
-        query(ownedCollection(uid, 'blocks'), where('pageId', '==', pid)),
-      );
-      blkSnap.forEach((d) => ops.push((batch) => batch.delete(d.ref)));
-
-      const cmtSnap = await getDocs(
-        query(ownedCollection(uid, 'comments'), where('pageId', '==', pid)),
-      );
-      cmtSnap.forEach((d) => ops.push((batch) => batch.delete(d.ref)));
     }
+    blockSnap.forEach((d) => {
+      if (deleting.has(String(d.data().pageId ?? ''))) {
+        ops.push((batch) => batch.delete(d.ref));
+      }
+    });
+    commentSnap.forEach((d) => {
+      if (deleting.has(String(d.data().pageId ?? ''))) {
+        ops.push((batch) => batch.delete(d.ref));
+      }
+    });
     await commitOperationsInBatches(ops);
   } catch (err) {
     handleFirestoreError(err, OperationType.DELETE, `users/${uid}/pages`);

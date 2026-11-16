@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { WorkspaceData } from './types';
+import { createSeedWorkspace } from './seedData';
 
 const CACHE_KEY = 'plc.notion.offline.cache.v4';
 const OUTBOX_KEY = 'plc.notion.offline.outbox.v4';
@@ -33,13 +34,28 @@ export function saveCachedWorkspace(data: WorkspaceData): void {
 export function loadCachedWorkspace(): WorkspaceData | null {
   try {
     const raw = localStorage.getItem(CACHE_KEY);
-    if (!raw) return null;
+    if (!raw) return createSeedWorkspace();
     const parsed = JSON.parse(raw) as WorkspaceData;
-    if (!parsed || !Array.isArray(parsed.pages)) return null;
-    return parsed;
+    if (!parsed || !Array.isArray(parsed.pages)) return createSeedWorkspace();
+    return migrateCachedWorkspace(parsed);
   } catch {
-    return null;
+    return createSeedWorkspace();
   }
+}
+
+// Caches written before the PLC Comm database existed get it added once, without touching user data.
+export function migrateCachedWorkspace(parsed: WorkspaceData): WorkspaceData {
+  if (parsed.pages.some((p) => p.id === 'page_plc_comm')) return parsed;
+
+  const seed = createSeedWorkspace();
+  parsed.pages = [...parsed.pages, seed.pages.find((p) => p.id === 'page_plc_comm')!];
+  parsed.databases = { ...parsed.databases, db_plc_comm: seed.databases.db_plc_comm };
+  try {
+    saveCachedWorkspace(parsed);
+  } catch {
+    // ignore
+  }
+  return parsed;
 }
 
 export function loadOutbox(): OfflineMutation[] {

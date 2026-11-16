@@ -72,6 +72,23 @@ test('parseNotionCsvToDatabaseImport infers column types, dates, and tag colors'
   assert.equal(imported.rows[1].cells[imported.columns[4].id], true);
 });
 
+test('parseNotionCsvToDatabaseImport treats Campaign Name as the title column even when it is not first', () => {
+  const csv = [
+    'Date,Campaign Name,Category,PIC,Status,Viewers,React,Comment,Poll',
+    '11/25/2026,Can You Spot It?,Braincation,,In progress,120,8,3,2',
+    '11/23/2026,Tuesday Book Pick,Book Review,,To Do,,,,',
+  ].join('\n');
+
+  const imported = parseNotionCsvToDatabaseImport(csv, 'Progress tracker.csv');
+  const title = imported.columns.find((c) => c.type === 'title');
+  assert.equal(title?.name, 'Campaign Name');
+  assert.equal(imported.columns.filter((c) => c.type === 'title').length, 1);
+  assert.equal(imported.columns[0].name, 'Date');
+  assert.equal(imported.columns[0].type, 'date');
+  assert.equal(imported.rows[0].cells.col_title, 'Can You Spot It?');
+  assert.equal(imported.rows[1].cells.col_title, 'Tuesday Book Pick');
+});
+
 test('mergeImportIntoDatabase appends new rows, maps existing columns/options, and adds missing tags', () => {
   const ws = createSeedWorkspace();
   const db = ws.databases.db_roadmap;

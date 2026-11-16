@@ -375,13 +375,18 @@ export function buildDatabaseFromTableMatrix(
   dataRows: string[][],
 ): { columns: DatabaseColumn[]; rows: ProjectTemplateRowInput[]; groupByColumnId: string } {
   const cleanHeaders = headers.map((h, i) => h.trim() || `Column ${i + 1}`);
+  // Campaign Name (and other common lead columns) is the title even when it is not the first column.
+  let titleColIdx = cleanHeaders.findIndex((h) =>
+    /^(campaign\s*name|name|title|initiative|task|subject)$/i.test(h),
+  );
+  if (titleColIdx === -1) titleColIdx = 0;
   const columns: DatabaseColumn[] = [];
 
   for (let colIdx = 0; colIdx < cleanHeaders.length; colIdx++) {
     const header = cleanHeaders[colIdx];
     const colValues = dataRows.map((r) => (r[colIdx] ?? '').trim()).filter((v) => v !== '');
 
-    if (colIdx === 0) {
+    if (colIdx === titleColIdx) {
       columns.push({
         id: 'col_title',
         name: header,

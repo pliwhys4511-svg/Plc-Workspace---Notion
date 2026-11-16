@@ -19,6 +19,7 @@ import {
   searchWorkspace,
 } from './workspaceOps';
 import { createSeedWorkspace } from './seedData';
+import { migrateCachedWorkspace } from './offlineSync';
 import {
   deserializeTableRows,
   sanitizeBlockForCloud,
@@ -30,11 +31,12 @@ import type { Block } from './types';
 test('buildPageTree orders pages hierarchically and excludes trashed and row pages', () => {
   const seed = createSeedWorkspace();
   const tree = buildPageTree(seed.pages, null);
-  assert.equal(tree.length, 4);
+  assert.equal(tree.length, 5);
   assert.equal(tree[0].page.id, 'page_home');
   assert.equal(tree[0].children.length, 1);
   assert.equal(tree[0].children[0].page.id, 'page_shortcuts');
   assert.equal(tree[1].children.length, 0);
+  assert.equal(tree[4].page.id, 'page_plc_comm');
 });
 
 test('getBreadcrumbs returns ordered ancestor chain and prevents cycles', () => {
@@ -270,4 +272,43 @@ test('Firestore serializer converts nested table rows and enforces payload bound
   assert.equal(String(sanitizedPage.title).length, 300);
   assert.equal(sanitizedPage.coverPosition, 100);
   assert.equal(sanitizedPage.position, 0);
+});
+
+test('seed ships the PLC Comm campaign tracker as schema only, with no personal records', () => {
+  const seed = createSeedWorkspace();
+  const db = seed.databases.db_plc_comm;
+  assert.ok(db);
+  assert.deepEqual(
+    db.columns.map((c) => c.name),
+    ['Campaign Name', 'Date', 'Category', 'PIC', 'Status', 'Viewers', 'React', 'Comment', 'Poll'],
+  );
+  assert.equal(db.columns.find((c) => c.type === 'title')?.name, 'Campaign Name');
+  assert.equal(db.rows.length, 0);
+  assert.deepEqual(seed.blocksByPage.page_plc_comm, []);
+  assert.ok(!JSON.stringify(seed).includes('@permatabank.com'));
+  // Every seeded row page is reachable from a database row.
+  const rowPageIds = new Set(
+    Object.values(seed.databases).flatMap((d) => d.rows.map((r) => r.pageId)),
+  );
+  for (const page of seed.pages.filter((p) => p.isRowPage)) {
+    assert.ok(rowPageIds.has(page.id), `orphan row page ${page.id}`);
+  }
+});
+
+test('migrateCachedWorkspace adds PLC Comm once to an older cache without touching user data', () => {
+  const stale = createSeedWorkspace();
+  delete stale.databases.db_plc_comm;
+  delete stale.blocksByPage.page_plc_comm;
+  stale.pages = stale.pages.filter((p) => p.id !== 'page_plc_comm');
+  stale.pages.find((p) => p.id === 'page_home')!.title = 'My own home';
+
+  const migrated = migrateCachedWorkspace(stale);
+  assert.equal(migrated.pages.find((p) => p.id === 'page_home')?.title, 'My own home');
+  assert.ok(migrated.databases.db_plc_comm);
+  assert.equal(migrated.databases.db_plc_comm.rows.length, 0);
+  assert.equal(migrated.pages.filter((p) => p.id === 'page_plc_comm').length, 1);
+  assert.equal(migrated.pages.filter((p) => p.isRowPage && p.parentId === 'page_plc_comm').length, 0);
+
+  const again = migrateCachedWorkspace(migrated);
+  assert.equal(again.pages.filter((p) => p.id === 'page_plc_comm').length, 1);
 });

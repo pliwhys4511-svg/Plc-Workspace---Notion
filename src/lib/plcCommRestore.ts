@@ -1,11 +1,12 @@
 import type { Database, Page, WorkspaceData } from './types';
 import { createSeedWorkspace } from './seedData';
 import { createId } from './workspaceOps';
+import { isPlcCommPage } from './workspaceNavigation';
 
 export interface PlcCommRestoreResult {
   workspace: WorkspaceData;
   page: Page;
-  action: 'open' | 'restore' | 'create';
+  action: 'open' | 'restore' | 'create' | 'repair';
   newDatabase?: Database;
 }
 
@@ -17,25 +18,65 @@ export interface PlcCommRestoreResult {
  * Existing database rows, content and custom columns are always preserved.
  */
 export function planPlcCommRestore(workspace: WorkspaceData): PlcCommRestoreResult {
-  const existingPage = workspace.pages.find((page) => {
-    const db = page.databaseId ? workspace.databases[page.databaseId] : null;
-    return page.isDatabase && Boolean(db) &&
-      (page.title.trim().toLocaleLowerCase('en') === 'plc comm' ||
-       page.databaseId === 'db_plc_comm' ||
-       db?.title.trim().toLocaleLowerCase('en') === 'plc comm');
-  });
+  const seed = createSeedWorkspace();
+  const templatePage = seed.pages.find((page) => page.id === 'page_plc_comm');
+  const templateDb = seed.databases.db_plc_comm;
+  if (!templatePage || !templateDb) throw new Error('PLC Comm template is missing.');
+
+  const existingPage = workspace.pages.find(isPlcCommPage);
   if (existingPage) {
-    if (!existingPage.isTrashed) {
-      return { workspace, page: existingPage, action: 'open' };
+    const linkedDb = existingPage.databaseId
+      ? workspace.databases[existingPage.databaseId]
+      : undefined;
+    if (linkedDb) {
+      if (!existingPage.isTrashed) {
+        return { workspace, page: existingPage, action: 'open' };
+      }
+      const restored = { ...existingPage, isTrashed: false, updatedAt: new Date().toISOString() };
+      return {
+        workspace: {
+          ...workspace,
+          pages: workspace.pages.map((page) => page.id === existingPage.id ? restored : page),
+        },
+        page: restored,
+        action: 'restore',
+      };
     }
-    const restored = { ...existingPage, isTrashed: false, updatedAt: new Date().toISOString() };
+
+    // Older cloud/local snapshots may contain a PLC Comm page whose database
+    // document is missing. Repair only its association; preserve page ID/content.
+    const detachedDb = Object.values(workspace.databases).find((db) =>
+      (db.id === 'db_plc_comm' || db.title.trim().toLocaleLowerCase('en') === 'plc comm') &&
+      !workspace.pages.some((page) => page.databaseId === db.id),
+    );
+    const dbId = detachedDb?.id ?? existingPage.databaseId ??
+      (workspace.databases.db_plc_comm ? createId('db') : 'db_plc_comm');
+    const newDatabase = detachedDb ? undefined : {
+      ...templateDb,
+      id: dbId,
+      rows: [],
+      columns: templateDb.columns.map((column) => ({
+        ...column,
+        options: column.options?.map((option) => ({ ...option })),
+      })),
+    };
+    const repaired = {
+      ...existingPage,
+      databaseId: dbId,
+      isTrashed: false,
+      updatedAt: new Date().toISOString(),
+    };
     return {
       workspace: {
         ...workspace,
-        pages: workspace.pages.map((page) => page.id === existingPage.id ? restored : page),
+        pages: workspace.pages.map((page) => page.id === existingPage.id ? repaired : page),
+        databases: newDatabase
+          ? { ...workspace.databases, [dbId]: newDatabase }
+          : workspace.databases,
       },
-      page: restored,
-      action: 'restore',
+      page: repaired,
+      action: 'repair',
+      newDatabase,
     };
   }
 
@@ -43,11 +84,6 @@ export function planPlcCommRestore(workspace: WorkspaceData): PlcCommRestoreResu
     (db.id === 'db_plc_comm' || db.title.trim().toLocaleLowerCase('en') === 'plc comm') &&
     !workspace.pages.some((page) => page.databaseId === db.id),
   );
-
-  const seed = createSeedWorkspace();
-  const templatePage = seed.pages.find((page) => page.id === 'page_plc_comm');
-  const templateDb = seed.databases.db_plc_comm;
-  if (!templatePage || !templateDb) throw new Error('PLC Comm template is missing.');
 
   let newDatabase: Database | undefined;
   const dbId = unlinkedDb?.id ??

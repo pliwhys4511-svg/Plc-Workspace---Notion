@@ -46,6 +46,16 @@ import type {
 import { createSeedWorkspace } from './seedData';
 import { planMissingCloudImportTargets } from './cloudImportPlan';
 
+/**
+ * Every collection LIST is restricted by ownerId in the deployed Firestore Rules.
+ * Those rules are NOT filters, so an unfiltered onSnapshot/getDocs is denied even
+ * for a user who owns every document in their collection.
+ */
+function ownedCollection(uid: string, name: string) {
+  return query(collection(db, 'users', uid, name), where('ownerId', '==', uid));
+}
+
+
 export async function signInWithGoogle() {
   return signInWithPopup(auth, googleProvider);
 }
@@ -193,7 +203,7 @@ export async function cloudReplaceWorkspace(
   for (const colName of subcollections) {
     const colPath = `users/${uid}/${colName}`;
     try {
-      const snap = await getDocs(collection(db, 'users', uid, colName));
+      const snap = await getDocs(ownedCollection(uid, colName));
       snap.forEach((docSnap) => {
         deleteOps.push((batch) => batch.delete(docSnap.ref));
       });
@@ -285,9 +295,17 @@ export function subscribeCloudWorkspace(
   };
 
   const handleSubError = (path: string, err: unknown) => {
-    const wrapped = err instanceof Error ? err : new Error(String(err));
-    onError?.(wrapped);
-    handleFirestoreError(err, OperationType.GET, path);
+    // Firestore invokes listener error callbacks asynchronously. Throwing here
+    // causes an uncaught exception and masks the real failed collection.
+    const code = err && typeof err === 'object' && 'code' in err
+      ? String((err as { code?: unknown }).code ?? '')
+      : '';
+    const collectionName = path.split('/').pop() || 'workspace';
+    console.warn('Cloud Firestore subscription failed', { collectionName, code });
+    const friendly = /permission.denied/.test(code)
+      ? new Error(`Izin Firestore ditolak ketika membaca ${collectionName}. Pastikan akun memiliki akses dan Security Rules sudah aktif.`)
+      : new Error(`Gagal membaca ${collectionName} dari Cloud Firestore.`);
+    onError?.(friendly);
   };
 
   const unsubSettings = onSnapshot(
@@ -307,7 +325,7 @@ export function subscribeCloudWorkspace(
   );
 
   const unsubPages = onSnapshot(
-    collection(db, 'users', uid, 'pages'),
+    ownedCollection(uid, 'pages'),
     (snap) => {
       pagesList = snap.docs.map((d) => {
         const raw = d.data();
@@ -338,7 +356,7 @@ export function subscribeCloudWorkspace(
   );
 
   const unsubBlocks = onSnapshot(
-    collection(db, 'users', uid, 'blocks'),
+    ownedCollection(uid, 'blocks'),
     (snap) => {
       blocksList = snap.docs.map((d) => {
         const raw = d.data();
@@ -369,7 +387,7 @@ export function subscribeCloudWorkspace(
   );
 
   const unsubDatabases = onSnapshot(
-    collection(db, 'users', uid, 'databases'),
+    ownedCollection(uid, 'databases'),
     (snap) => {
       dbsList = snap.docs.map((d) => {
         const raw = d.data();
@@ -388,7 +406,7 @@ export function subscribeCloudWorkspace(
   );
 
   const unsubRows = onSnapshot(
-    collection(db, 'users', uid, 'dbRows'),
+    ownedCollection(uid, 'dbRows'),
     (snap) => {
       rowsList = snap.docs.map((d) => {
         const raw = d.data();
@@ -408,7 +426,7 @@ export function subscribeCloudWorkspace(
   );
 
   const unsubComments = onSnapshot(
-    collection(db, 'users', uid, 'comments'),
+    ownedCollection(uid, 'comments'),
     (snap) => {
       commentsList = snap.docs.map((d) => {
         const raw = d.data();
@@ -531,7 +549,7 @@ export async function cloudSavePageBlocks(
   const colPath = `users/${uid}/blocks`;
   try {
     const existingSnap = await getDocs(
-      query(collection(db, 'users', uid, 'blocks'), where('pageId', '==', safePageId)),
+      query(ownedCollection(uid, 'blocks'), where('pageId', '==', safePageId)),
     );
     const keepIds = new Set(blocks.map((b) => ensureValidFirestoreId(b.id, 'blk')));
     const ops: Array<(batch: ReturnType<typeof writeBatch>) => void> = [];
@@ -574,12 +592,12 @@ export async function cloudDeletePageTree(
     for (const pid of safeIds) {
       ops.push((batch) => batch.delete(doc(db, 'users', uid, 'pages', pid)));
       const blkSnap = await getDocs(
-        query(collection(db, 'users', uid, 'blocks'), where('pageId', '==', pid)),
+        query(ownedCollection(uid, 'blocks'), where('pageId', '==', pid)),
       );
       blkSnap.forEach((d) => ops.push((batch) => batch.delete(d.ref)));
 
       const cmtSnap = await getDocs(
-        query(collection(db, 'users', uid, 'comments'), where('pageId', '==', pid)),
+        query(ownedCollection(uid, 'comments'), where('pageId', '==', pid)),
       );
       cmtSnap.forEach((d) => ops.push((batch) => batch.delete(d.ref)));
     }

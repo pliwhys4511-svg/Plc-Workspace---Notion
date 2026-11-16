@@ -53,6 +53,7 @@ import {
   type ProjectTemplatePackage,
 } from './lib/templateTransfer';
 import { auth } from './lib/firebase';
+import { CLOUD_PAUSED_KEY, shouldAutoResumeCloud } from './lib/cloudReconnect';
 import {
   cloudAddComment,
   cloudAddDatabaseRow,
@@ -275,6 +276,19 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
   useEffect(() => {
     loadWorkspace();
   }, [loadWorkspace]);
+
+  // Firebase Auth persists verified Google sessions across browser visits.
+  // Restore the existing owner's Cloud DB automatically, without a popup.
+  // Editor PINs are not Firebase credentials or permission to read owner data.
+  useEffect(() => {
+    return onAuthStateChanged(auth, (user) => {
+      let paused = false;
+      try { paused = localStorage.getItem(CLOUD_PAUSED_KEY) === '1'; } catch { /* private mode */ }
+      if (shouldAutoResumeCloud(access.role, Boolean(user?.emailVerified), paused)) {
+        setCloudModeRequested(true);
+      }
+    });
+  }, [access.role]);
 
   // Listen for Firebase Auth only after the user explicitly selects Cloud mode.
   useEffect(() => {
@@ -1680,7 +1694,9 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
   };
 
   const handleSignInCloud = async () => {
-    // Never attempt cloud authentication implicitly at startup.
+    // The first Google sign-in still requires a user gesture. Subsequent
+    // visits reuse the existing verified Firebase Auth session automatically.
+    try { localStorage.removeItem(CLOUD_PAUSED_KEY); } catch { /* ignore */ }
     setCloudModeRequested(true);
     try {
       if (!auth.currentUser?.emailVerified) await signInWithGoogle();
@@ -1692,7 +1708,8 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
   };
 
   const handleSignOutCloud = async () => {
-    // Explicitly stop all cloud listeners first and preserve the local cache.
+    // Respect explicit Local mode on future visits and preserve local cache.
+    try { localStorage.setItem(CLOUD_PAUSED_KEY, '1'); } catch { /* ignore */ }
     setCloudModeRequested(false);
     workspaceCacheOwnerRef.current = null;
     setCloudUser(null);
@@ -2058,7 +2075,9 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
       <div className="fixed bottom-4 left-3 z-40 flex items-center gap-2 rounded-xl border border-[var(--notion-border)] bg-[var(--notion-surface)] px-3 py-2 shadow-md">
         <div className="min-w-0">
           <div className="text-xs font-semibold text-[var(--notion-text)]">{access.displayName}</div>
-          <div className="text-[10px] text-[var(--notion-text-muted)]">{canManage ? 'Admin · Full access' : 'Editor · Content access'}</div>
+          <div className="text-[10px] text-[var(--notion-text-muted)]">{canManage
+            ? (activeCloudUid ? 'Admin · Cloud tersambung' : 'Admin · Mode Lokal')
+            : 'Editor · Mode Lokal (belum tersinkron bersama)'}</div>
         </div>
         <button type="button" onClick={onLogout}
           className="ml-1 rounded-md border border-[var(--notion-border-strong)] px-2 py-1 text-[11px] font-medium text-[var(--notion-text-secondary)] hover:bg-[var(--notion-hover)]"

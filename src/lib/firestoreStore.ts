@@ -82,16 +82,10 @@ export async function ensureUserRoot(user: User): Promise<void> {
           updatedAt: serverTimestamp(),
         }),
       );
-    } else {
-      await updateDoc(
-        userRef,
-        stripUndefined({
-          displayName,
-          photoURL,
-          updatedAt: serverTimestamp(),
-        }),
-      );
     }
+    // Existing profiles need no write just to reconnect. Previously the app
+    // updated displayName/photoURL on every visit, potentially failing rules
+    // before any workspace data could load. Edit profile explicitly instead.
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
   }

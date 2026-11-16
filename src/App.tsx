@@ -54,7 +54,6 @@ import {
 } from './lib/templateTransfer';
 import { auth } from './lib/firebase';
 import { getTeamOwnerUid, requestTeamMembership, watchTeamMember } from './lib/teamWorkspace';
-import { TeamAccessPanel } from './components/TeamAccessPanel';
 import {
   cloudAddComment,
   cloudAddDatabaseRow,
@@ -192,7 +191,7 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
   const [undoStack, setUndoStack] = useState<Record<string, Block[][]>>({});
   // Team mode is always the source of truth. Editors only get shared access
   // after explicit approval in Firestore Security Rules.
-  const [cloudModeRequested, setCloudModeRequested] = useState(true);
+  const cloudModeRequested = true;
   const [teamOwnerUid, setTeamOwnerUid] = useState<string | null>(null);
   const [teamStatus, setTeamStatus] = useState<'connecting' | 'active' | 'pending' | 'invite' | 'signed-out' | 'error' | 'role-mismatch'>('connecting');
   const [cloudUser, setCloudUser] = useState<User | null>(null);
@@ -790,7 +789,7 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
   const handleRestorePlcComm = async () => {
     if (!workspace) return;
     if (cloudModeRequested && cloudSyncStatus !== 'synced') {
-      showToast('Firebase tidak mengizinkan perubahan. Klik Mode Lokal dahulu.');
+      showToast('Workspace bersama belum tersinkron. Periksa koneksi tim.');
       return;
     }
     const planned = planPlcCommRestore(workspace);
@@ -843,7 +842,7 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
 
   const handleOpenUploadTemplate = (targetDbId?: string) => {
     if (cloudModeRequested && cloudSyncStatus !== 'synced') {
-      showToast('Koneksi Firebase belum siap. Pilih Mode Lokal terlebih dahulu.');
+      showToast('Workspace bersama belum tersinkron. Periksa koneksi tim.');
       return;
     }
     const resolvedDbId =
@@ -1729,50 +1728,6 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
     }
   };
 
-  const handleSignInCloud = async () => {
-    // The first Google sign-in still requires a user gesture. Subsequent
-    // visits reuse the existing verified Firebase Auth session automatically.
-    try { localStorage.removeItem(CLOUD_PAUSED_KEY); } catch { /* ignore */ }
-    setCloudModeRequested(true);
-    try {
-      if (!auth.currentUser?.emailVerified) await signInWithGoogle();
-      showToast('Menghubungkan Firebase Cloud DB...');
-    } catch {
-      setCloudModeRequested(false);
-      showToast('Koneksi Google dibatalkan. Mode Lokal tetap aktif.');
-    }
-  };
-
-  const handleSignOutCloud = async () => {
-    // Respect explicit Local mode on future visits and preserve local cache.
-    try { localStorage.setItem(CLOUD_PAUSED_KEY, '1'); } catch { /* ignore */ }
-    setCloudModeRequested(false);
-    workspaceCacheOwnerRef.current = null;
-    setCloudUser(null);
-    setCloudSyncStatus('local');
-    try {
-      await signOutGoogle();
-    } catch {
-      // Cached Firebase sessions are ignored unless cloud is opted into again.
-    }
-    await loadWorkspace();
-    showToast('Mode Lokal aktif. Data hanya tersimpan di browser ini.');
-  };
-
-  const handlePushLocalToCloud = async () => {
-    if (!canManage) { showToast('Only Admin can replace cloud workspace data'); return; }
-    if (!activeCloudUid || !workspace) return;
-    try {
-      setCloudSyncStatus('connecting');
-      await cloudReplaceWorkspace(activeCloudUid, workspace);
-      setCloudSyncStatus('synced');
-      showToast('Workspace pushed to Firebase Firestore');
-    } catch {
-      setCloudSyncStatus('error');
-      showToast('Failed to push workspace to Firestore');
-    }
-  };
-
   const handleCopyMarkdown = () => {
     if (!workspace || !activePage) return;
     const md = renderPageToMarkdown(
@@ -1924,27 +1879,6 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
     );
   }
 
-  if (cloudModeRequested && cloudUser && cloudSyncStatus === 'error') {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-[var(--notion-bg)] px-5 text-[var(--notion-text)]">
-        <div className="max-w-md w-full rounded-xl border border-amber-400/50 bg-[var(--notion-surface)] p-6 space-y-4 shadow-lg">
-          <h1 className="text-lg font-semibold">Akses Firebase ditolak</h1>
-          <p className="text-sm text-[var(--notion-text-secondary)]">
-            Firestore menolak akses akun Google ini. Data cloud tidak diubah.
-            Agar PLC Comm dan upload CSV bisa digunakan di browser ini, keluar dari Cloud DB dan pilih Mode Lokal.
-          </p>
-          <p className="text-xs text-[var(--notion-text-muted)]">
-            Mode Lokal hanya tersimpan di browser yang digunakan, bukan otomatis sinkron ke anggota tim lain.
-          </p>
-          <button type="button" onClick={() => { void handleSignOutCloud(); }}
-            className="rounded-lg bg-[#0064ff] px-4 py-2 text-sm font-semibold text-white">
-            Gunakan Mode Lokal
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   const peekDb = peekTarget ? workspace.databases[peekTarget.dbId] : undefined;
   const peekRow = peekDb?.rows.find((r) => r.id === peekTarget?.rowId);
   const peekRowPage = peekRow
@@ -2088,7 +2022,6 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
         )}
         canTargetCurrentPage={Boolean(activePage && !activePage.locked)}
         storageMode={activeCloudUid ? 'cloud' : 'local'}
-        onUseLocalMode={() => { setUploadModalOpen(false); void handleSignOutCloud(); }}
         onConfirmImport={handleConfirmTemplateImport}
       />
 
@@ -2136,7 +2069,6 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
         }}
         cloudUser={cloudUser}
         cloudSyncStatus={cloudSyncStatus}
-        onPushLocalToCloud={handlePushLocalToCloud}
         teamOwnerUid={activeCloudUid ?? undefined}
       />}
 

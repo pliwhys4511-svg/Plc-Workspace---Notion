@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { teamInviteLink, validTeamUid, PLC_SHARED_OWNER_UID } from './teamWorkspace';
+import { teamInviteLink, validTeamUid, PLC_SHARED_OWNER_UID, isGoogleIdentityAllowedForRole } from './teamWorkspace';
 
 test('invitation links preserve the workspace route and carry the owner UID', () => {
   const owner = '18Js95RNBtfbWw0ln2XjGjdYGNn1';
@@ -39,4 +39,14 @@ test('Admin approval is required and signup only creates an access request', () 
   assert.match(source, /export async function approveTeamMember/);
   assert.match(source, /export async function requestTeamMembership/);
   assert.match(source, /watchTeamMember/);
+});
+
+test('Rafly uses own verified Google identity even when Admin session was saved in this browser', () => {
+  const owner = PLC_SHARED_OWNER_UID!;
+  const raflyUid = 'rafly-google-identity';
+  assert.equal(isGoogleIdentityAllowedForRole('admin', owner), true);
+  assert.equal(isGoogleIdentityAllowedForRole('editor', owner), false);
+  assert.equal(isGoogleIdentityAllowedForRole('editor', raflyUid), true);
+  assert.equal(isGoogleIdentityAllowedForRole('admin', raflyUid), false);
+  assert.equal(isGoogleIdentityAllowedForRole('editor', null), false);
 });

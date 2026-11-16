@@ -62,6 +62,7 @@ import {
   cloudDeleteDatabaseRow,
   cloudDeletePageTree,
   cloudImportDatabaseChanges,
+  cloudEnsureImportTargets,
   cloudReplaceWorkspace,
   cloudSavePageBlocks,
   cloudUpdateComment,
@@ -702,6 +703,18 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
       if (activeCloudUid) {
         if (planned.action === 'restore') {
           await cloudUpdatePage(activeCloudUid, planned.page.id, { isTrashed: false });
+        } else if (planned.action === 'repair') {
+          const targetDb = planned.workspace.databases[planned.page.databaseId ?? ''];
+          if (!targetDb) throw new Error('Database PLC Comm tidak ditemukan.');
+          // Create only missing cloud documents; retain any existing page/data.
+          await cloudEnsureImportTargets(activeCloudUid, targetDb, planned.page);
+          const oldPage = workspace.pages.find((page) => page.id === planned.page.id);
+          if (oldPage?.databaseId !== planned.page.databaseId) {
+            await cloudUpdatePage(activeCloudUid, planned.page.id, { databaseId: planned.page.databaseId });
+          }
+          if (oldPage?.isTrashed) {
+            await cloudUpdatePage(activeCloudUid, planned.page.id, { isTrashed: false });
+          }
         } else {
           await cloudCreatePage(activeCloudUid, planned.page, [], planned.newDatabase);
         }
@@ -712,10 +725,20 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
       if (activeCloudUid) saveCachedCloudWorkspace(activeCloudUid, planned.workspace);
       else saveCachedWorkspace(planned.workspace);
       handleSelectPage(planned.page.id);
-      showToast(planned.action === 'restore' ? 'Halaman PLC Comm dipulihkan.' : 'Halaman PLC Comm siap untuk upload CSV.');
+      showToast(
+        planned.action === 'restore'
+          ? 'Halaman PLC Comm dipulihkan.'
+          : planned.action === 'repair'
+            ? 'Database PLC Comm berhasil diperbaiki tanpa menghapus konten.'
+            : 'Halaman PLC Comm siap untuk upload CSV.',
+      );
     } catch {
-      setCloudSyncStatus('error');
-      showToast('Firebase menolak perubahan. Pilih Mode Lokal terlebih dahulu.');
+      if (activeCloudUid) {
+        setCloudSyncStatus('error');
+        showToast('Firebase menolak perubahan. Gunakan Mode Lokal atau periksa izin akun.');
+      } else {
+        showToast('Gagal mengaktifkan PLC Comm di penyimpanan lokal.');
+      }
     }
   };
 

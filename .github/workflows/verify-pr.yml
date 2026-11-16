@@ -22,7 +22,7 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund --legacy-peer-deps
       - name: Run workspace unit and regression tests
-        run: npx tsx --test src/lib/workspaceOps.test.ts src/lib/templateTransfer.test.ts src/lib/workspaceAudit.test.ts src/lib/accessTier.test.ts src/lib/plcCommTracker.test.ts src/lib/plcCommRestore.test.ts src/components/UploadTemplateModal.test.ts src/lib/cloudImportPlan.test.ts
+        run: npx tsx --test src/lib/workspaceOps.test.ts src/lib/templateTransfer.test.ts src/lib/workspaceAudit.test.ts src/lib/accessTier.test.ts src/lib/plcCommTracker.test.ts src/lib/plcCommRestore.test.ts src/components/UploadTemplateModal.test.ts src/lib/cloudImportPlan.test.ts src/lib/firestoreOwnerQuery.test.ts
       - name: TypeScript type check
         run: npm run lint
       - name: Build production bundle

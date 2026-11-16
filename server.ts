@@ -50,7 +50,7 @@ function requireAuth(req: Request, res: Response, next: NextFunction): void {
 
 // Health endpoint for external hosters (Render, Railway, Fly.io, Docker)
 app.get('/api/health', (_req: Request, res: Response) => {
-  res.json({ ok: true, storage: 'sqlite', dataDir: DATA_DIR });
+  res.json({ ok: true, storage: 'sqlite' });
 });
 
 // Workspace bootstrap (returns lock screen metadata if passcode enabled & unauthenticated)
@@ -73,14 +73,14 @@ app.get('/api/workspace', (req: Request, res: Response) => {
 // Optional workspace passcode login/logout/management
 app.post('/api/auth/login', (req: Request, res: Response) => {
   const password = String(req.body?.password ?? '');
-  if (!store.verifyPassword(password)) {
+  if (!store.getSettings().passwordProtected || !store.verifyPassword(password)) {
     res.status(401).json({ error: 'Incorrect workspace passcode.' });
     return;
   }
   const token = store.createSession();
   res.setHeader(
     'Set-Cookie',
-    `plc_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`,
+    `plc_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000${IS_PROD ? '; Secure' : ''}`,
   );
   res.json({ ok: true, workspace: store.getWorkspaceData() });
 });
@@ -88,11 +88,16 @@ app.post('/api/auth/login', (req: Request, res: Response) => {
 app.post('/api/auth/logout', (req: Request, res: Response) => {
   const cookies = parseCookies(req);
   store.deleteSession(cookies.plc_session);
-  res.setHeader('Set-Cookie', 'plc_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');
+  res.setHeader('Set-Cookie', `plc_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${IS_PROD ? '; Secure' : ''}`);
   res.json({ ok: true });
 });
 
 app.post('/api/auth/passcode', requireAuth, (req: Request, res: Response) => {
+  // Prevent anonymous visitors from claiming an unprotected workspace.
+  if (!store.getSettings().passwordProtected) {
+    res.status(403).json({ error: 'Configure PLC_WORKSPACE_PASSWORD on the server to enable password protection.' });
+    return;
+  }
   const newPassword = String(req.body?.newPassword ?? '');
   const currentPassword = req.body?.currentPassword ? String(req.body.currentPassword) : undefined;
   const result = store.setPassword(newPassword, currentPassword);
@@ -104,7 +109,7 @@ app.post('/api/auth/passcode', requireAuth, (req: Request, res: Response) => {
     const token = store.createSession();
     res.setHeader(
       'Set-Cookie',
-      `plc_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`,
+      `plc_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000${IS_PROD ? '; Secure' : ''}`,
     );
   }
   res.json({ ok: true, settings: store.getSettings() });

@@ -15,9 +15,14 @@ test('editor tier requires a listed editor and the editor PIN', () => {
   assert.equal(checkWorkspacePin('editor', '1234'), null);
   assert.equal(checkWorkspacePin('editor', '1234', 'Anonymous'), null);
 });
-test('access session persists within one tab and can be cleared', () => {
+test('role choice persists across visits and can be cleared', () => {
   const state = new Map<string, string>();
   Object.defineProperty(globalThis, 'sessionStorage', { configurable: true, value: {
+    setItem(k: string, v: string) { state.set(k, v); },
+    getItem(k: string) { return state.get(k) ?? null; },
+    removeItem(k: string) { state.delete(k); },
+  } });
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
     setItem(k: string, v: string) { state.set(k, v); },
     getItem(k: string) { return state.get(k) ?? null; },
     removeItem(k: string) { state.delete(k); },

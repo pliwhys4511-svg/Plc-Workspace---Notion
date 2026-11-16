@@ -20,6 +20,7 @@ import type { ThemeMode, WorkspaceData, WorkspaceSettings } from '../lib/types';
 import { ICON_CHOICES } from '../data/covers';
 import { isStaticHostMode } from '../lib/offlineSync';
 import { FIREBASE_PROJECT_INFO } from '../lib/firebase';
+import { TeamAccessPanel } from './TeamAccessPanel';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -35,6 +36,7 @@ interface SettingsModalProps {
   onSignInCloud?: () => Promise<void>;
   onSignOutCloud?: () => Promise<void>;
   onPushLocalToCloud?: () => Promise<void>;
+  teamOwnerUid?: string;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -51,6 +53,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onSignInCloud,
   onSignOutCloud,
   onPushLocalToCloud,
+  teamOwnerUid,
 }) => {
   const [name, setName] = useState(settings.name);
   const [currentPass, setCurrentPass] = useState('');
@@ -131,6 +134,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         <div className="p-6 space-y-7">
+          {teamOwnerUid && <TeamAccessPanel ownerUid={teamOwnerUid} />}
+
           {/* Workspace Identity */}
           <section className="space-y-3">
             <h3 className="text-xs font-semibold text-[var(--notion-text-muted)]">

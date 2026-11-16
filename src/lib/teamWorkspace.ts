@@ -4,6 +4,7 @@ import {
   setDoc, type Unsubscribe,
 } from 'firebase/firestore';
 import { db } from './firebase';
+import firebaseConfig from '../../firebase-applet-config.json';
 
 export interface JoinRequest {
   uid: string;
@@ -24,28 +25,31 @@ export function validTeamUid(raw: string | null): string | null {
   return null;
 }
 
+export const PLC_SHARED_OWNER_UID = validTeamUid(firebaseConfig.sharedWorkspaceOwnerUid);
+
 export function teamInviteLink(ownerUid: string, location: string): string {
   const url = new URL(location);
-  url.searchParams.set('team', ownerUid);
+  // A single canonical link works for all editors. The owner ID is pinned
+  // in app configuration; no invitation query parameter is needed.
+  if (!ownerUid || ownerUid !== PLC_SHARED_OWNER_UID) throw new Error('Owner Workspace tidak sesuai.');
+  url.searchParams.delete('team');
   url.hash = '';
   return url.toString();
 }
 
-export function getTeamOwnerUid(editorUid: string): string | null {
-  let ownerId: string | null = null;
+export function getTeamOwnerUid(_editorUid: string): string | null {
+  // Do not trust an arbitrary query string/localStorage owner selection. All
+  // sessions MUST target one fixed, approved shared PLC Workspace.
   try {
     const url = new URL(window.location.href);
-    ownerId = validTeamUid(url.searchParams.get('team'));
-    if (ownerId) {
-      localStorage.setItem(`plc.team.owner.${editorUid}`, ownerId);
+    if (url.searchParams.has('team')) {
       url.searchParams.delete('team');
       window.history.replaceState(null, '', url.toString());
-      return ownerId;
     }
-    return validTeamUid(localStorage.getItem(`plc.team.owner.${editorUid}`));
   } catch {
-    return ownerId;
+    // Browser history may be unavailable in private mode.
   }
+  return PLC_SHARED_OWNER_UID;
 }
 
 export function watchTeamMember(

@@ -51,6 +51,19 @@ test('Firestore rules enforce owner-approved shared workspace access', async (t)
       await assertFails(getDoc(doc(auth(stranger), 'users', owner, 'pages', 'page_one')));
     });
 
+    await t.test('verified Editor can request access without self-approval', async () => {
+      await seed();
+      const ownerDb = auth(owner);
+      const editorDb = auth(editor);
+      await assertSucceeds(setDoc(doc(editorDb, 'users', owner, 'joinRequests', editor), {
+        uid: editor, name: 'Rafly', email: editor + '@example.invalid',
+        createdAt: serverTimestamp(),
+      }));
+      await assertSucceeds(getDoc(doc(editorDb, 'users', owner, 'joinRequests', editor)));
+      await assertFails(getDocs(collection(editorDb, 'users', owner, 'joinRequests')));
+      await assertSucceeds(getDocs(collection(ownerDb, 'users', owner, 'joinRequests')));
+    });
+
     await t.test('owner can create Editor membership; Editor cannot self-approve', async () => {
       await seed();
       const ownerDb = auth(owner);

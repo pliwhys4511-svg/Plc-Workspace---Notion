@@ -85,6 +85,13 @@ import { TemplatesModal } from './components/TemplatesModal';
 import { UploadTemplateModal, type TemplateImportMode } from './components/UploadTemplateModal';
 import { CommentsDrawer } from './components/CommentsDrawer';
 import { OfflineIndicator } from './components/PWAComponents';
+import { AccessGate } from './components/AccessGate';
+import {
+  clearWorkspaceAccess,
+  loadWorkspaceAccess,
+  saveWorkspaceAccess,
+  type WorkspaceAccess,
+} from './lib/accessTier';
 
 function buildDefaultDatabase(id: string, title: string, icon: string): Database {
   return {
@@ -125,6 +132,28 @@ function buildDefaultDatabase(id: string, title: string, icon: string): Database
 }
 
 export default function App() {
+  const [access, setAccess] = useState<WorkspaceAccess | null>(loadWorkspaceAccess);
+
+  const handleSuccess = (next: WorkspaceAccess) => {
+    saveWorkspaceAccess(next);
+    setAccess(next);
+  };
+  const handleLogout = () => {
+    clearWorkspaceAccess();
+    setAccess(null);
+  };
+
+  if (!access) return <AccessGate onSuccess={handleSuccess} />;
+  return <WorkspaceApp key={access.role + ':' + access.displayName} access={access} onLogout={handleLogout} />;
+}
+
+interface WorkspaceAppProps {
+  access: WorkspaceAccess;
+  onLogout: () => void;
+}
+
+function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
+  const canManage = access.role === 'admin';
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lockedMeta, setLockedMeta] = useState<WorkspaceSettings | null>(null);
@@ -1118,6 +1147,7 @@ export default function App() {
   };
 
   const handleDeleteForever = async (pageId: string) => {
+    if (!canManage) { showToast('Only Admin can permanently delete pages'); return; }
     if (!workspace) return;
     try {
       const localDeletedIds = [pageId, ...getDescendantIds(workspace.pages, pageId)];
@@ -1492,6 +1522,7 @@ export default function App() {
   const handleUpdateSettings = async (
     patch: Partial<{ name: string; icon: string; theme: ThemeMode }>,
   ) => {
+    if (!canManage) { showToast('Only Admin can manage workspace settings'); return; }
     if (patch.theme) applyTheme(patch.theme);
     setWorkspace((prev) => {
       if (!prev) return prev;
@@ -1529,6 +1560,7 @@ export default function App() {
   };
 
   const handlePushLocalToCloud = async () => {
+    if (!canManage) { showToast('Only Admin can replace cloud workspace data'); return; }
     if (!activeCloudUid || !workspace) return;
     try {
       setCloudSyncStatus('connecting');
@@ -1569,6 +1601,7 @@ export default function App() {
   };
 
   const handleDownloadWorkspaceJson = () => {
+    if (!canManage) { showToast('Workspace backups are Admin only'); return; }
     if (isOnline && !isStaticHostMode()) {
       const a = document.createElement('a');
       a.href = '/api/export';
@@ -1654,6 +1687,7 @@ export default function App() {
   return (
     <div className="h-screen w-screen overflow-hidden flex bg-[var(--notion-bg)] text-[var(--notion-text)]">
       <Sidebar
+        canManage={canManage}
         isOpen={sidebarOpen}
         isMobile={isMobile}
         settings={workspace.settings}
@@ -1670,13 +1704,13 @@ export default function App() {
         onRestorePage={handleRestorePage}
         onDeleteForever={handleDeleteForever}
         onOpenSearch={() => setSearchOpen(true)}
-        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenSettings={() => { if (canManage) setSettingsOpen(true); }}
         onOpenTemplates={() => setTemplatesOpen(true)}
         onToggleTheme={(theme) => handleUpdateSettings({ theme })}
         onCloseSidebar={() => setSidebarOpen(false)}
         cloudUser={cloudUser}
         cloudSyncStatus={cloudSyncStatus}
-        onSignInCloud={handleSignInCloud}
+        onSignInCloud={canManage ? handleSignInCloud : undefined}
       />
 
       <main id="main" className="flex-1 min-w-0 h-full flex flex-col bg-[var(--notion-bg)]">
@@ -1688,6 +1722,7 @@ export default function App() {
               breadcrumbs={breadcrumbs}
               activePage={activePage}
               saveState={saveState}
+              canManage={canManage}
               commentCount={openCommentCount}
               wordCount={wordCount}
               canUndo={canUndo}
@@ -1785,7 +1820,7 @@ export default function App() {
         onDeleteComment={handleDeleteComment}
       />
 
-      <SettingsModal
+      {canManage && <SettingsModal
         isOpen={settingsOpen}
         settings={workspace.settings}
         onClose={() => setSettingsOpen(false)}
@@ -1822,7 +1857,7 @@ export default function App() {
         onSignInCloud={handleSignInCloud}
         onSignOutCloud={handleSignOutCloud}
         onPushLocalToCloud={handlePushLocalToCloud}
-      />
+      />}
 
       {peekDb && peekRow && (
         <RowPeekModal
@@ -1837,6 +1872,15 @@ export default function App() {
         />
       )}
 
+      <div className="fixed bottom-4 left-3 z-40 flex items-center gap-2 rounded-xl border border-[var(--notion-border)] bg-[var(--notion-surface)] px-3 py-2 shadow-md">
+        <div className="min-w-0">
+          <div className="text-xs font-semibold text-[var(--notion-text)]">{access.displayName}</div>
+          <div className="text-[10px] text-[var(--notion-text-muted)]">{canManage ? 'Admin · Full access' : 'Editor · Content access'}</div>
+        </div>
+        <button type="button" onClick={onLogout}
+          className="ml-1 rounded-md border border-[var(--notion-border-strong)] px-2 py-1 text-[11px] font-medium text-[var(--notion-text-secondary)] hover:bg-[var(--notion-hover)]"
+          title="Keluar dari workspace">Keluar</button>
+      </div>
       <OfflineIndicator pendingCount={pendingCount} />
 
       {toast && (

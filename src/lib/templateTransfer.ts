@@ -14,6 +14,14 @@ import type {
   WorkspaceData,
 } from './types';
 import { createId, stripHtmlToText } from './workspaceOps';
+import {
+  createPlcCommTrackerColumns,
+  findOrAddOption,
+  isPlcCommTrackerHeaders,
+  normalizePlcCommDate,
+  normalizePlcCommKey,
+  parsePlcCommMetric,
+} from './plcCommTracker';
 
 export interface TemplateBlockInput {
   type: BlockType;
@@ -507,6 +515,50 @@ export function parseNotionCsvToDatabaseImport(
 
   const headers = matrix[0];
   const dataRows = matrix.slice(1);
+  if (isPlcCommTrackerHeaders(headers)) {
+    const columns = createPlcCommTrackerColumns();
+    const indexFor = (name: string) => headers.findIndex(
+      (header) => header.trim().toLowerCase() === name.toLowerCase(),
+    );
+    const rows: ProjectTemplateRowInput[] = dataRows.map((raw, idx) => {
+      const line = idx + 2;
+      const value = (name: string) => (raw[indexFor(name)] ?? '').trim();
+      const title = value('Campaign Name');
+      if (!title) throw new Error(`Baris ${line}: Campaign Name tidak boleh kosong.`);
+      const cells: Record<string, DatabaseCellValue> = {
+        col_title: title,
+        col_date: normalizePlcCommDate(value('Date'), line),
+        col_category: null,
+        col_pic: value('PIC'),
+        col_status: null,
+        col_viewers: parsePlcCommMetric(value('Viewers'), 'Viewers', line),
+        col_react: parsePlcCommMetric(value('React'), 'React', line),
+        col_comment: parsePlcCommMetric(value('Comment'), 'Comment', line),
+        col_poll: parsePlcCommMetric(value('Poll'), 'Poll', line),
+      };
+      const category = value('Category');
+      const status = value('Status');
+      if (category) cells.col_category = findOrAddOption(columns[2], category);
+      if (status) cells.col_status = findOrAddOption(columns[4], status);
+      return { cells };
+    });
+    return {
+      sourceFormat: 'notion-csv',
+      name: 'PLC Comm Campaign Tracker',
+      icon: '📊',
+      cover: 'grad_sage',
+      category: 'PLC Communications',
+      description: 'Campaign activity and engagement tracker imported from CSV.',
+      isDatabase: true,
+      fullWidth: true,
+      activeView: 'table',
+      groupByColumnId: 'col_status',
+      columns,
+      rows,
+      blocks: [],
+      summary: `${columns.length} kolom, ${rows.length} campaign. Upload ke PLC Comm dengan Tambahkan/Update (tanpa duplikat).`,
+    };
+  }
   const { columns, rows, groupByColumnId } = buildDatabaseFromTableMatrix(headers, dataRows);
   const name = cleanNotionFilenameTitle(fileName);
 
@@ -821,6 +873,7 @@ export interface MergedDatabaseResult {
   addedRows: DatabaseRow[];
   addedRowPages: Page[];
   addedBlocksByPage: Record<string, Block[]>;
+  updatedRows?: DatabaseRow[];
   removedRowIds: string[];
   removedRowPageIds: string[];
 }
@@ -1070,6 +1123,64 @@ export function mergeImportIntoDatabase(
       updatedAt: now,
     });
   });
+
+  // PLC Comm CSV imports are repeatable: match by normalized date + campaign title
+  // and update nonempty fields instead of adding duplicate rows.
+  if (targetDb.id === 'db_plc_comm' && isPlcCommTrackerHeaders(imported.columns.map((c) => c.name))) {
+    const allRows = [...targetDb.rows];
+    const existingByKey = new Map<string, number>();
+    const updatedById = new Map<string, DatabaseRow>();
+    for (let idx = 0; idx < allRows.length; idx++) {
+      const row = allRows[idx];
+      const date = String(row.cells.col_date ?? '');
+      let normalizedDate = date;
+      try { normalizedDate = normalizePlcCommDate(date, 0) ?? date; } catch { /* preserve custom dates */ }
+      const key = normalizePlcCommKey(row.cells.col_title, normalizedDate);
+      if (key && !existingByKey.has(key)) existingByKey.set(key, idx);
+    }
+    const keptAddedRows: DatabaseRow[] = [];
+    const keptAddedPages: Page[] = [];
+    const keptBlocks: Record<string, Block[]> = {};
+    for (let i = 0; i < addedRows.length; i++) {
+      const incoming = addedRows[i];
+      const key = normalizePlcCommKey(incoming.cells.col_title, incoming.cells.col_date);
+      const matchIndex = existingByKey.get(key);
+      if (key && matchIndex !== undefined) {
+        const original = allRows[matchIndex];
+        const patchedCells = { ...original.cells };
+        for (const [columnId, value] of Object.entries(incoming.cells)) {
+          // Empty CSV cells never erase existing manually entered values.
+          if (value !== null && value !== '' && value !== undefined) {
+            patchedCells[columnId] = value;
+          }
+        }
+        if (JSON.stringify(original.cells) !== JSON.stringify(patchedCells)) {
+          const patched = { ...original, cells: patchedCells, updatedAt: now };
+          allRows[matchIndex] = patched;
+          if (matchIndex < targetDb.rows.length) updatedById.set(patched.id, patched);
+          else {
+            const addedIndex = keptAddedRows.findIndex((row) => row.id === patched.id);
+            if (addedIndex >= 0) keptAddedRows[addedIndex] = patched;
+          }
+        }
+        continue;
+      }
+      if (key) existingByKey.set(key, allRows.length);
+      allRows.push(incoming);
+      keptAddedRows.push(incoming);
+      keptAddedPages.push(addedRowPages[i]);
+      keptBlocks[incoming.pageId] = addedBlocksByPage[incoming.pageId] ?? [];
+    }
+    return {
+      nextDatabase: { ...targetDb, columns: nextColumns, rows: allRows },
+      addedRows: keptAddedRows,
+      addedRowPages: keptAddedPages,
+      addedBlocksByPage: keptBlocks,
+      updatedRows: [...updatedById.values()],
+      removedRowIds: [],
+      removedRowPageIds: [],
+    };
+  }
 
   return {
     nextDatabase: {

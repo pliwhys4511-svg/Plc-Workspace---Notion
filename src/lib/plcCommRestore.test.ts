@@ -56,3 +56,30 @@ test('reuse detached PLC Comm database without altering existing campaign rows',
   assert.equal(result.workspace.databases.db_plc_comm.rows.length, 1);
   assert.equal(result.page.databaseId, 'db_plc_comm');
 });
+
+test('repair existing PLC Comm page when its database document is absent', () => {
+  const ws = createSeedWorkspace();
+  const originalPage = ws.pages.find((p) => p.id === 'page_plc_comm')!;
+  ws.blocksByPage.page_plc_comm = [
+    { id: 'blk_keep', pageId: 'page_plc_comm', type: 'paragraph', content: 'Existing notes', position: 0 },
+  ];
+  delete ws.databases.db_plc_comm;
+  const outcome = planPlcCommRestore(ws);
+  assert.equal(outcome.action, 'repair');
+  assert.equal(outcome.page.id, originalPage.id);
+  assert.equal(outcome.newDatabase?.id, 'db_plc_comm');
+  assert.equal(outcome.workspace.pages.length, ws.pages.length);
+  assert.equal(outcome.workspace.blocksByPage.page_plc_comm[0].content, 'Existing notes');
+  assert.equal(ws.databases.db_plc_comm, undefined);
+});
+
+test('repair trashed PLC Comm page missing a database without duplicating pages', () => {
+  const ws = createSeedWorkspace();
+  const p = ws.pages.find((page) => page.id === 'page_plc_comm')!;
+  p.isTrashed = true;
+  delete ws.databases.db_plc_comm;
+  const result = planPlcCommRestore(ws);
+  assert.equal(result.action, 'repair');
+  assert.equal(result.page.isTrashed, false);
+  assert.equal(result.workspace.pages.filter((page) => page.id === 'page_plc_comm').length, 1);
+});

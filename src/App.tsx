@@ -1879,7 +1879,7 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
             </button>
           )}
           <div className="flex flex-wrap items-center gap-3">
-            {(teamStatus === 'error' || teamStatus === 'invite') && (
+            {(['error', 'invite', 'pending', 'role-mismatch'] as string[]).includes(teamStatus) && (
               <button type="button"
                 onClick={() => {
                   // Keep existing browser-local work available if Firestore

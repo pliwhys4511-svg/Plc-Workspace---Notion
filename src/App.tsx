@@ -71,6 +71,7 @@ import {
   cloudUpdateDatabaseRow,
   cloudUpdatePage,
   cloudUpdateSettings,
+  ensureUserRoot,
   seedOrEnsureCloudWorkspace,
   signInWithGoogle,
   signOutGoogle,
@@ -1836,7 +1837,7 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
   // Do not enable edits to isolated browser data while a shared workspace is
   // pending approval or cannot be loaded. This prevents false "synced" claims.
   if (cloudModeRequested && teamStatus !== 'active') {
-    const titles: Record<typeof teamStatus, string> = {
+    const titles: Record<'connecting' | 'active' | 'pending' | 'invite' | 'signed-out' | 'error' | 'role-mismatch', string> = {
       connecting: 'Menghubungkan Workspace Tim',
       active: 'Workspace Aktif',
       pending: 'Menunggu Persetujuan Admin',

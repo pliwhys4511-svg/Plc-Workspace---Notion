@@ -1,3 +1,4 @@
+import { createPlcCommTrackerColumns } from './plcCommTracker';
 import type {
   Block,
   BlockType,
@@ -174,40 +175,7 @@ export const NOTION_TEMPLATES: NotionTemplate[] = [
       icon: '📊',
       activeView: 'table',
       groupByColumnId: 'col_status',
-      columns: [
-        { id: 'col_title', name: 'Campaign Name', type: 'title', width: 240 },
-        { id: 'col_date', name: 'Date', type: 'date', width: 130 },
-        {
-          id: 'col_category',
-          name: 'Category',
-          type: 'select',
-          width: 140,
-          options: [
-            { id: 'braincation', label: 'Braincation', color: 'blue' },
-            { id: 'book_review', label: 'Book Review', color: 'purple' },
-            { id: 'request_design', label: 'Request Design', color: 'orange' },
-            { id: 'pearl_course', label: 'PEARL Course', color: 'green' },
-            { id: 'quiz', label: 'Quiz', color: 'yellow' },
-            { id: 'pearl_feature', label: 'PEARL Feature', color: 'pink' },
-          ],
-        },
-        { id: 'col_pic', name: 'PIC', type: 'person', width: 220 },
-        {
-          id: 'col_status',
-          name: 'Status',
-          type: 'select',
-          width: 130,
-          options: [
-            { id: 'in_progress', label: 'In progress', color: 'blue' },
-            { id: 'completed', label: 'Completed', color: 'green' },
-            { id: 'todo', label: 'To Do', color: 'gray' },
-          ],
-        },
-        { id: 'col_viewers', name: 'Viewers', type: 'number', width: 95 },
-        { id: 'col_react', name: 'React', type: 'number', width: 85 },
-        { id: 'col_comment', name: 'Comment', type: 'number', width: 95 },
-        { id: 'col_poll', name: 'Poll', type: 'number', width: 80 },
-      ],
+      columns: createPlcCommTrackerColumns(),
       rows: [],
     },
   },

@@ -74,6 +74,8 @@ export const UploadTemplateModal: React.FC<UploadTemplateModalProps> = ({
   const parsed = parseResult.parsed;
   const displayError = manualError || parseResult.error;
   const hasTableRows = Boolean(parsed && parsed.rows.length > 0 && parsed.columns.length > 0);
+  const plcCommTarget = activePageTitle?.trim().toLowerCase() === 'plc comm' && activePageIsDatabase;
+  const plcCommUpload = plcCommTarget && Boolean(parsed?.columns.some((col) => col.name === 'Campaign Name'));
   const canAppend = canTargetCurrentPage && activePageIsDatabase && hasTableRows;
   const canReplace =
     canTargetCurrentPage &&
@@ -96,7 +98,17 @@ export const UploadTemplateModal: React.FC<UploadTemplateModalProps> = ({
       return;
     }
     try {
-      const text = await file.text();
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let text: string;
+      try {
+        text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+      } catch {
+        if (!file.name.toLowerCase().endsWith('.csv')) {
+          throw new Error('File tidak berformat UTF-8. Silakan ekspor ulang sebagai UTF-8.');
+        }
+        // Notion/Excel CSV exports may contain Windows-1252 curly quotes.
+        text = new TextDecoder('windows-1252').decode(bytes);
+      }
       setFileName(file.name);
       setInputMode('file');
       setRawText(text);
@@ -269,6 +281,20 @@ export const UploadTemplateModal: React.FC<UploadTemplateModalProps> = ({
                 placeholder={'Initiative,Status,Priority,Target Date,Verified\nBuild Release Notes,In Progress,High,2026-12-01,No'}
                 className="w-full rounded-lg border border-[var(--notion-border-strong)] bg-[var(--notion-bg)] p-2.5 text-xs font-mono text-[var(--notion-text)] focus:outline-none focus:border-[var(--notion-accent)]"
               />
+            </div>
+          )}
+
+          {plcCommTarget && (
+            <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 px-3 py-2.5 text-xs text-[var(--notion-text-secondary)] space-y-1">
+              <div className="font-semibold text-[var(--notion-text)]">PLC Comm · Upload Progress Tracker</div>
+              <p>Gunakan CSV dengan kolom Date, Campaign Name, Category, PIC, Status, Viewers, React, Comment, Poll.</p>
+              <p>Tanggal dibaca sebagai MM/DD/YYYY; Viewers/React/Comment/Poll akan dikonversi menjadi angka.</p>
+              <p className="font-medium">Pilih Tambahkan baris untuk memperbarui campaign dengan judul + tanggal yang sama tanpa menggandakan data.</p>
+            </div>
+          )}
+          {plcCommUpload && parsed && !displayError && (
+            <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300">
+              Tracker terdeteksi: {parsed.rows.length} campaign siap diimpor. Kolom kosong tidak menghapus data sebelumnya.
             </div>
           )}
 

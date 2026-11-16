@@ -83,8 +83,8 @@ test('parseNotionCsvToDatabaseImport treats Campaign Name as the title column ev
   const title = imported.columns.find((c) => c.type === 'title');
   assert.equal(title?.name, 'Campaign Name');
   assert.equal(imported.columns.filter((c) => c.type === 'title').length, 1);
-  assert.equal(imported.columns[0].name, 'Date');
-  assert.equal(imported.columns[0].type, 'date');
+  assert.equal(imported.columns.find((c) => c.name === 'Date')?.type, 'date');
+  assert.equal(imported.columns[0].name, 'Campaign Name');
   assert.equal(imported.rows[0].cells.col_title, 'Can You Spot It?');
   assert.equal(imported.rows[1].cells.col_title, 'Tuesday Book Pick');
 });

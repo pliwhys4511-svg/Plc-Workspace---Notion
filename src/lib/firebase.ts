@@ -48,25 +48,20 @@ export function handleFirestoreError(
   operationType: OperationType,
   path: string | null,
 ): never {
-  const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
-      providerInfo:
-        auth.currentUser?.providerData?.map((provider) => ({
-          providerId: provider.providerId,
-          email: provider.email,
-        })) || [],
-    },
-    operationType,
-    path,
-  };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+  const source = error instanceof Error ? error.message : String(error);
+  const code = error && typeof error === 'object' && 'code' in error
+    ? String((error as { code?: unknown }).code ?? '')
+    : '';
+  // Do not surface serialized Firebase user details (emails, UID, provider data)
+  // in a visible dialog, and don't mistake denied permissions for an offline edit.
+  console.error('Firestore operation failed:', { operationType, path, code, message: source });
+  if (/permission.denied|insufficient permissions/i.test(code + ' ' + source)) {
+    throw new Error('Akses Firebase ditolak. Periksa Firestore Security Rules dan izin akun Google. Pilih Mode Lokal untuk menggunakan tracker di browser ini.');
+  }
+  if (/unauthenticated|authentication|not authenticated/i.test(code + ' ' + source)) {
+    throw new Error('Sesi Google tidak valid. Silakan login ulang atau gunakan Mode Lokal.');
+  }
+  throw new Error('Operasi Firebase gagal. Silakan periksa koneksi dan konfigurasi Cloud DB.');
 }
 
 async function testConnection() {

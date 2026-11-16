@@ -809,13 +809,12 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
         },
       };
 
-      setWorkspace(nextWs);
-      saveCachedWorkspace(nextWs);
-
+      // Persist before presenting success; a failed import must not replace local state.
       if (activeCloudUid) {
         await cloudImportDatabaseChanges(activeCloudUid, {
           database: merged.nextDatabase,
           addedRows: merged.addedRows,
+          updatedRows: merged.updatedRows,
           addedRowPages: merged.addedRowPages,
           addedBlocksByPage: merged.addedBlocksByPage,
           removedRowIds: merged.removedRowIds,
@@ -825,8 +824,15 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
         await api.importWorkspace(nextWs);
       }
 
+      setWorkspace(nextWs);
+      if (activeCloudUid) saveCachedCloudWorkspace(activeCloudUid, nextWs);
+      else saveCachedWorkspace(nextWs);
+
+      const updated = merged.updatedRows?.length ?? 0;
       showToast(
-        mergeMode === 'replace'
+        targetDb.id === 'db_plc_comm' && mergeMode === 'append'
+          ? `PLC Comm: ${merged.addedRows.length} baru, ${updated} diperbarui, tanpa duplikat`
+          : mergeMode === 'replace'
           ? `Replaced "${targetDb.title}" (${merged.addedRows.length} rows)`
           : `Added ${merged.addedRows.length} rows to "${targetDb.title}"`,
       );

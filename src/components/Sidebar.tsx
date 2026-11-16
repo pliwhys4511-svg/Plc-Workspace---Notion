@@ -418,7 +418,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </span>
               </button>
             )
-          )}
+          ))}
 
           <PWAInstallButton />
         </div>

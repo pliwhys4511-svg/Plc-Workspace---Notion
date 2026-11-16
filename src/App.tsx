@@ -180,6 +180,9 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
   const [toast, setToast] = useState<string | null>(null);
   const [pendingCount, setPendingCount] = useState<number>(() => loadOutbox().length);
   const [undoStack, setUndoStack] = useState<Record<string, Block[][]>>({});
+  // GitHub Pages defaults to browser-local storage. A saved Google Auth session
+  // must not silently enable Firestore writes; users opt in explicitly.
+  const [cloudModeRequested, setCloudModeRequested] = useState(false);
   const [cloudUser, setCloudUser] = useState<User | null>(null);
   const [cloudSyncStatus, setCloudSyncStatus] = useState<'local' | 'connecting' | 'synced' | 'error'>('local');
 
@@ -192,7 +195,8 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
   const workspaceCacheOwnerRef = useRef<string | null>(null);
   const activePageIdRef = useRef<string>('');
   // Never send writes to a cloud account that has not finished permission checks.
-  const activeCloudUid = cloudUser?.emailVerified && cloudSyncStatus === 'synced' ? cloudUser.uid : null;
+  const activeCloudUid = cloudModeRequested && cloudUser?.emailVerified && cloudSyncStatus === 'synced'
+    ? cloudUser.uid : null;
 
   useEffect(() => {
     workspaceRef.current = workspace;
@@ -265,8 +269,14 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
     loadWorkspace();
   }, [loadWorkspace]);
 
-  // Listen for Firebase Auth user and subscribe to live Cloud Firestore workspace
+  // Listen for Firebase Auth only after the user explicitly selects Cloud mode.
   useEffect(() => {
+    if (!cloudModeRequested) {
+      workspaceCacheOwnerRef.current = null;
+      setCloudUser(null);
+      setCloudSyncStatus('local');
+      return;
+    }
     let unsubCloud: (() => void) | null = null;
     let cancelled = false;
 
@@ -329,7 +339,7 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
       unsubAuth();
       if (unsubCloud) unsubCloud();
     };
-  }, [applyTheme, selectInitialPage, showToast]);
+  }, [cloudModeRequested, applyTheme, selectInitialPage, showToast]);
 
   // Persist workspace snapshot locally whenever it changes for instant offline booting
   useEffect(() => {
@@ -679,7 +689,7 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
 
   const handleRestorePlcComm = async () => {
     if (!workspace) return;
-    if (cloudUser && cloudSyncStatus !== 'synced') {
+    if (cloudModeRequested && cloudSyncStatus !== 'synced') {
       showToast('Firebase tidak mengizinkan perubahan. Klik Mode Lokal dahulu.');
       return;
     }
@@ -710,7 +720,7 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
   };
 
   const handleOpenUploadTemplate = (targetDbId?: string) => {
-    if (cloudUser && cloudSyncStatus !== 'synced') {
+    if (cloudModeRequested && cloudSyncStatus !== 'synced') {
       showToast('Koneksi Firebase belum siap. Pilih Mode Lokal terlebih dahulu.');
       return;
     }
@@ -814,8 +824,8 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
     saveToGallery: boolean,
   ) => {
     if (!workspace) return;
-    if (cloudUser && cloudSyncStatus !== 'synced') {
-      throw new Error('Firebase belum siap. Keluar dari Cloud DB untuk mengimpor secara lokal.');
+    if (cloudModeRequested && cloudSyncStatus !== 'synced') {
+      throw new Error('Izin Firebase belum siap. Pilih Gunakan Mode Lokal, lalu unggah ulang.');
     }
 
     if (saveToGallery) {
@@ -1597,21 +1607,30 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
   };
 
   const handleSignInCloud = async () => {
+    // Never attempt cloud authentication implicitly at startup.
+    setCloudModeRequested(true);
     try {
-      await signInWithGoogle();
-      showToast('Connected to Firebase Firestore Cloud DB');
+      if (!auth.currentUser?.emailVerified) await signInWithGoogle();
+      showToast('Menghubungkan Firebase Cloud DB...');
     } catch {
-      showToast('Google Sign-In was cancelled or blocked');
+      setCloudModeRequested(false);
+      showToast('Koneksi Google dibatalkan. Mode Lokal tetap aktif.');
     }
   };
 
   const handleSignOutCloud = async () => {
-    await signOutGoogle();
+    // Explicitly stop all cloud listeners first and preserve the local cache.
+    setCloudModeRequested(false);
     workspaceCacheOwnerRef.current = null;
     setCloudUser(null);
     setCloudSyncStatus('local');
+    try {
+      await signOutGoogle();
+    } catch {
+      // Cached Firebase sessions are ignored unless cloud is opted into again.
+    }
     await loadWorkspace();
-    showToast('Mode Lokal aktif. Data disimpan pada browser ini.');
+    showToast('Mode Lokal aktif. Data hanya tersimpan di browser ini.');
   };
 
   const handlePushLocalToCloud = async () => {
@@ -1733,7 +1752,7 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
 
   // Preserve existing cloud data on permission failures. Require an explicit
   // disconnect rather than silently writing a cloud snapshot into local storage.
-  if (cloudUser && cloudSyncStatus === 'error') {
+  if (cloudModeRequested && cloudUser && cloudSyncStatus === 'error') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[var(--notion-bg)] px-5 text-[var(--notion-text)]">
         <div className="max-w-md w-full rounded-xl border border-amber-400/50 bg-[var(--notion-surface)] p-6 space-y-4 shadow-lg">

@@ -53,7 +53,8 @@ import {
   type ProjectTemplatePackage,
 } from './lib/templateTransfer';
 import { auth } from './lib/firebase';
-import { CLOUD_PAUSED_KEY, shouldAutoResumeCloud } from './lib/cloudReconnect';
+import { getTeamOwnerUid, requestTeamMembership, watchTeamMember } from './lib/teamWorkspace';
+import { TeamAccessPanel } from './components/TeamAccessPanel';
 import {
   cloudAddComment,
   cloudAddDatabaseRow,
@@ -146,6 +147,7 @@ export default function App() {
   const handleLogout = () => {
     clearWorkspaceAccess();
     setAccess(null);
+    void signOutGoogle();
   };
 
   if (!access) return <AccessGate onSuccess={handleSuccess} />;
@@ -188,9 +190,11 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
   const [toast, setToast] = useState<string | null>(null);
   const [pendingCount, setPendingCount] = useState<number>(() => loadOutbox().length);
   const [undoStack, setUndoStack] = useState<Record<string, Block[][]>>({});
-  // GitHub Pages defaults to browser-local storage. A saved Google Auth session
-  // must not silently enable Firestore writes; users opt in explicitly.
-  const [cloudModeRequested, setCloudModeRequested] = useState(false);
+  // Team mode is always the source of truth. Editors only get shared access
+  // after explicit approval in Firestore Security Rules.
+  const [cloudModeRequested, setCloudModeRequested] = useState(true);
+  const [teamOwnerUid, setTeamOwnerUid] = useState<string | null>(null);
+  const [teamStatus, setTeamStatus] = useState<'connecting' | 'active' | 'pending' | 'invite' | 'signed-out' | 'error' | 'role-mismatch'>('connecting');
   const [cloudUser, setCloudUser] = useState<User | null>(null);
   const [cloudSyncStatus, setCloudSyncStatus] = useState<'local' | 'connecting' | 'synced' | 'error'>('local');
 
@@ -203,8 +207,8 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
   const workspaceCacheOwnerRef = useRef<string | null>(null);
   const activePageIdRef = useRef<string>('');
   // Never send writes to a cloud account that has not finished permission checks.
-  const activeCloudUid = cloudModeRequested && cloudUser?.emailVerified && cloudSyncStatus === 'synced'
-    ? cloudUser.uid : null;
+  const activeCloudUid = cloudModeRequested && cloudUser?.emailVerified && cloudSyncStatus === 'synced' && teamStatus === 'active'
+    ? teamOwnerUid : null;
 
   useEffect(() => {
     workspaceRef.current = workspace;
@@ -277,20 +281,8 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
     loadWorkspace();
   }, [loadWorkspace]);
 
-  // Firebase Auth persists verified Google sessions across browser visits.
-  // Restore the existing owner's Cloud DB automatically, without a popup.
-  // Editor PINs are not Firebase credentials or permission to read owner data.
-  useEffect(() => {
-    return onAuthStateChanged(auth, (user) => {
-      let paused = false;
-      try { paused = localStorage.getItem(CLOUD_PAUSED_KEY) === '1'; } catch { /* private mode */ }
-      if (shouldAutoResumeCloud(access.role, Boolean(user?.emailVerified), paused)) {
-        setCloudModeRequested(true);
-      }
-    });
-  }, [access.role]);
-
-  // Listen for Firebase Auth only after the user explicitly selects Cloud mode.
+  // A verified Firebase session resumes automatically on every visit.
+  // Editor membership, not a shared PIN, authorizes access to the Admin's data.
   useEffect(() => {
     if (!cloudModeRequested) {
       workspaceCacheOwnerRef.current = null;
@@ -298,69 +290,113 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
       setCloudSyncStatus('local');
       return;
     }
-    let unsubCloud: (() => void) | null = null;
     let cancelled = false;
+    let unsubCloud: (() => void) | null = null;
+    let unsubMember: (() => void) | null = null;
+
+    const stopCloud = () => {
+      if (unsubCloud) { unsubCloud(); unsubCloud = null; }
+      if (unsubMember) { unsubMember(); unsubMember = null; }
+    };
 
     const unsubAuth = onAuthStateChanged(auth, async (user) => {
-      if (unsubCloud) {
-        unsubCloud();
-        unsubCloud = null;
-      }
-
-      if (user && user.emailVerified) {
-        workspaceCacheOwnerRef.current = null;
-        setCloudUser(user);
-        setCloudSyncStatus('connecting');
-        try {
-          // Never initialize a new cloud account from another user's local/cache data.
-          await seedOrEnsureCloudWorkspace(user, null);
-          if (cancelled) return;
-          unsubCloud = subscribeCloudWorkspace(
-            user.uid,
-            (cloudWs) => {
-              if (cancelled) return;
-              setLockedMeta(null);
-              setWorkspace(cloudWs);
-              workspaceCacheOwnerRef.current = user.uid;
-              saveCachedCloudWorkspace(user.uid, cloudWs);
-              applyTheme(cloudWs.settings.theme);
-              setCloudSyncStatus('synced');
-              setLoading(false);
-
-              const currentId = activePageIdRef.current;
-              const stillExists = cloudWs.pages.some(
-                (p) => p.id === currentId && !p.isTrashed && !p.isRowPage,
-              );
-              if (!currentId || !stillExists) {
-                selectInitialPage(cloudWs);
-              }
-            },
-            () => {
-              if (!cancelled) {
-                setCloudSyncStatus('error');
-                showToast('Sinkronisasi Firebase ditolak. Gunakan Mode Lokal atau periksa izin Firestore.');
-              }
-            },
-          );
-        } catch {
-          if (!cancelled) {
-            setCloudSyncStatus('error');
-            showToast('Akses Firebase ditolak. Gunakan Mode Lokal atau periksa izin Firestore.');
-          }
-        }
-      } else {
-        workspaceCacheOwnerRef.current = null;
+      stopCloud();
+      if (!user?.emailVerified) {
         setCloudUser(null);
         setCloudSyncStatus('local');
+        setTeamStatus('signed-out');
+        return;
+      }
+
+      workspaceCacheOwnerRef.current = null;
+      setCloudUser(user);
+      setCloudSyncStatus('connecting');
+      setTeamStatus('connecting');
+      const ownerUid = access.role === 'admin' ? user.uid : getTeamOwnerUid(user.uid);
+      setTeamOwnerUid(ownerUid);
+      if (!ownerUid || (access.role === 'editor' && ownerUid === user.uid)) {
+        setTeamStatus('invite');
+        return;
+      }
+
+      const startSharedSubscription = (workspaceOwnerUid: string) => {
+        if (unsubCloud) unsubCloud();
+        unsubCloud = subscribeCloudWorkspace(
+          workspaceOwnerUid,
+          (cloudWs) => {
+            if (cancelled) return;
+            setLockedMeta(null);
+            setWorkspace(cloudWs);
+            workspaceCacheOwnerRef.current = workspaceOwnerUid;
+            saveCachedCloudWorkspace(workspaceOwnerUid, cloudWs);
+            applyTheme(cloudWs.settings.theme);
+            setCloudSyncStatus('synced');
+            setTeamStatus('active');
+            setLoading(false);
+            const currentId = activePageIdRef.current;
+            const stillExists = cloudWs.pages.some(
+              (p) => p.id === currentId && !p.isTrashed && !p.isRowPage,
+            );
+            if (!currentId || !stillExists) selectInitialPage(cloudWs);
+          },
+          (err) => {
+            if (cancelled) return;
+            setCloudSyncStatus('error');
+            setTeamStatus('error');
+            showToast(err.message);
+          },
+        );
+      };
+
+      try {
+        if (access.role === 'admin') {
+          // Only the actual owner can initialize its cloud workspace.
+          await seedOrEnsureCloudWorkspace(user, null);
+          if (!cancelled) startSharedSubscription(ownerUid);
+        } else {
+          // An editor creates their own identity only; they must never seed
+          // or overwrite the Admin's project or cached workspace.
+          await ensureUserRoot(user);
+          if (cancelled) return;
+          unsubMember = watchTeamMember(
+            ownerUid, user.uid,
+            (member) => {
+              if (cancelled) return;
+              if (!member) {
+                if (unsubCloud) { unsubCloud(); unsubCloud = null; }
+                setCloudSyncStatus('connecting');
+                setTeamStatus('pending');
+                void requestTeamMembership(ownerUid, user, access.displayName).catch(() => {
+                  if (!cancelled) setTeamStatus('error');
+                });
+              } else if (member.name !== access.displayName) {
+                setTeamStatus('role-mismatch');
+              } else {
+                startSharedSubscription(ownerUid);
+              }
+            },
+            (err) => {
+              if (cancelled) return;
+              setCloudSyncStatus('error');
+              setTeamStatus('error');
+              showToast(err.message);
+            },
+          );
+        }
+      } catch {
+        if (cancelled) return;
+        setCloudSyncStatus('error');
+        setTeamStatus('error');
+        showToast('Koneksi Cloud DB gagal. Admin perlu memastikan Security Rules telah diterbitkan.');
       }
     });
 
     return () => {
       cancelled = true;
       unsubAuth();
-      if (unsubCloud) unsubCloud();
+      stopCloud();
     };
-  }, [cloudModeRequested, applyTheme, selectInitialPage, showToast]);
+  }, [cloudModeRequested, access.role, access.displayName, applyTheme, selectInitialPage, showToast]);
 
   // Persist workspace snapshot locally whenever it changes for instant offline booting
   useEffect(() => {
@@ -1842,6 +1878,52 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
 
   // Preserve existing cloud data on permission failures. Require an explicit
   // disconnect rather than silently writing a cloud snapshot into local storage.
+  // Do not enable edits to isolated browser data while a shared workspace is
+  // pending approval or cannot be loaded. This prevents false "synced" claims.
+  if (cloudModeRequested && teamStatus !== 'active') {
+    const titles: Record<typeof teamStatus, string> = {
+      connecting: 'Menghubungkan Workspace Tim',
+      active: 'Workspace Aktif',
+      pending: 'Menunggu Persetujuan Admin',
+      invite: 'Link Workspace Tim Diperlukan',
+      'signed-out': 'Masuk Google untuk Melanjutkan',
+      error: 'Workspace Tim Belum Terhubung',
+      'role-mismatch': 'Akun Editor Tidak Sesuai',
+    };
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[var(--notion-bg)] px-4 text-[var(--notion-text)]">
+        <div className="max-w-md w-full rounded-xl border border-[var(--notion-border)] bg-[var(--notion-surface)] p-6 space-y-4 shadow-lg">
+          <h1 className="text-lg font-semibold">{titles[teamStatus]}</h1>
+          <p className="text-sm text-[var(--notion-text-secondary)]">
+            {teamStatus === 'pending'
+              ? 'Permintaan akses telah dikirim. Admin perlu menyetujuinya di Settings → Akses Tim. Setelah disetujui, workspace akan terbuka otomatis.'
+              : teamStatus === 'invite'
+                ? 'Minta link undangan workspace kepada Admin, lalu buka link tersebut dan masuk sebagai Editor.'
+                : teamStatus === 'role-mismatch'
+                  ? 'Identitas Google ini sudah disetujui dengan nama Editor berbeda. Keluar dan pilih nama yang sesuai.'
+                  : teamStatus === 'signed-out'
+                    ? 'Masuk dengan akun Google yang terverifikasi sekali. Sesi berikutnya akan tersambung otomatis.'
+                    : teamStatus === 'connecting'
+                      ? 'Memuat data terbaru dari Firebase. Perubahan akan tersimpan untuk seluruh tim.'
+                      : 'Firebase menolak akses atau aturan kolaborasi belum aktif. Data cloud tidak diubah. Hubungi Admin untuk memeriksa Security Rules.'}
+          </p>
+          {(teamStatus === 'signed-out' || teamStatus === 'error') && (
+            <button type="button" onClick={() => { void signInWithGoogle().catch(() => {
+              showToast('Login Google dibatalkan atau belum berhasil.');
+            }); }}
+              className="rounded-lg bg-[#0064ff] px-4 py-2 text-sm font-semibold text-white">
+              Masuk Google / Coba Lagi
+            </button>
+          )}
+          <button type="button" onClick={onLogout}
+            className="text-xs font-medium text-[var(--notion-text-secondary)] hover:underline">
+            Keluar / Ganti Akun
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (cloudModeRequested && cloudUser && cloudSyncStatus === 'error') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[var(--notion-bg)] px-5 text-[var(--notion-text)]">
@@ -1898,7 +1980,7 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
         onCloseSidebar={() => setSidebarOpen(false)}
         cloudUser={cloudUser}
         cloudSyncStatus={cloudSyncStatus}
-        onSignInCloud={canManage ? handleSignInCloud : undefined}
+        onSignInCloud={undefined}
       />
 
       <main id="main" className="flex-1 min-w-0 h-full flex flex-col bg-[var(--notion-bg)]">
@@ -2054,9 +2136,8 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
         }}
         cloudUser={cloudUser}
         cloudSyncStatus={cloudSyncStatus}
-        onSignInCloud={handleSignInCloud}
-        onSignOutCloud={handleSignOutCloud}
         onPushLocalToCloud={handlePushLocalToCloud}
+        teamOwnerUid={activeCloudUid ?? undefined}
       />}
 
       {peekDb && peekRow && (
@@ -2077,7 +2158,7 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
           <div className="text-xs font-semibold text-[var(--notion-text)]">{access.displayName}</div>
           <div className="text-[10px] text-[var(--notion-text-muted)]">{canManage
             ? (activeCloudUid ? 'Admin · Cloud tersambung' : 'Admin · Mode Lokal')
-            : 'Editor · Mode Lokal (belum tersinkron bersama)'}</div>
+            : (activeCloudUid ? 'Editor · Cloud tersinkron bersama' : 'Editor · Menghubungkan...')}</div>
         </div>
         <button type="button" onClick={onLogout}
           className="ml-1 rounded-md border border-[var(--notion-border-strong)] px-2 py-1 text-[11px] font-medium text-[var(--notion-text-secondary)] hover:bg-[var(--notion-hover)]"

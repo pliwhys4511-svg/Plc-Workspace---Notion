@@ -123,7 +123,7 @@ export function AccessGate({ onSuccess }: AccessGateProps) {
             </div>
             <button type="submit" disabled={signingIn}
               className="w-full h-11 rounded-lg bg-[#0064ff] hover:bg-[#0055dd] text-white font-semibold text-sm flex items-center justify-center gap-2 transition-colors">
-              {signingIn ? 'Menghubungkan akun Google...' : 'Masuk Workspace'} <ArrowRight className="w-4 h-4" />
+              {signingIn ? 'Menghubungkan akun Google...' : 'Masuk dengan Google & Buka Workspace'} <ArrowRight className="w-4 h-4" />
             </button>
           </form>
         </div>

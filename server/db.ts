@@ -252,9 +252,11 @@ export class WorkspaceStore {
     }
     const trimmed = newPassword.trim();
     const nextHash = trimmed ? hashPassword(trimmed) : null;
-    this.db
-      .prepare('UPDATE workspace_meta SET password_hash = ? WHERE id = ?')
-      .run(nextHash, 'default');
+    this.runInTransaction(() => {
+      this.db.prepare('UPDATE workspace_meta SET password_hash = ? WHERE id = ?').run(nextHash, 'default');
+      // Revoke all previous sessions immediately on password changes.
+      this.db.prepare('DELETE FROM sessions').run();
+    });
     return { ok: true };
   }
 
@@ -269,9 +271,15 @@ export class WorkspaceStore {
   public hasSession(token: string | undefined): boolean {
     if (!token) return false;
     const row = this.db
-      .prepare('SELECT token FROM sessions WHERE token = ?')
-      .get(token) as { token: string } | undefined;
-    return Boolean(row);
+      .prepare('SELECT token, created_at FROM sessions WHERE token = ?')
+      .get(token) as { token: string; created_at: string } | undefined;
+    if (!row) return false;
+    const ageMs = Date.now() - Date.parse(row.created_at);
+    if (!Number.isFinite(ageMs) || ageMs < 0 || ageMs > 30 * 86400000) {
+      this.deleteSession(token);
+      return false;
+    }
+    return true;
   }
 
   public deleteSession(token: string | undefined): void {
@@ -740,6 +748,14 @@ export class WorkspaceStore {
           queue.push(p.id);
         }
       }
+    }
+
+    // Row pages are not necessarily descendants of their database page.
+    // Remove them with their database to avoid orphan blocks/comments.
+    for (const targetId of [...toDelete]) {
+      const page = data.pages.find((p) => p.id === targetId);
+      if (!page?.databaseId) continue;
+      for (const row of data.databases[page.databaseId]?.rows ?? []) toDelete.add(row.pageId);
     }
 
     this.runInTransaction(() => {

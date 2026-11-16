@@ -53,6 +53,7 @@ import {
   type ProjectTemplatePackage,
 } from './lib/templateTransfer';
 import { auth } from './lib/firebase';
+import { CLOUD_PAUSED_KEY, shouldAutoResumeCloud } from './lib/cloudReconnect';
 import {
   cloudAddComment,
   cloudAddDatabaseRow,
@@ -275,6 +276,19 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
   useEffect(() => {
     loadWorkspace();
   }, [loadWorkspace]);
+
+  // Firebase Auth persists verified Google sessions across browser visits.
+  // Restore the existing owner's Cloud DB automatically, without a popup.
+  // Editor PINs are not Firebase credentials or permission to read owner data.
+  useEffect(() => {
+    return onAuthStateChanged(auth, (user) => {
+      let paused = false;
+      try { paused = localStorage.getItem(CLOUD_PAUSED_KEY) === '1'; } catch { /* private mode */ }
+      if (shouldAutoResumeCloud(access.role, Boolean(user?.emailVerified), paused)) {
+        setCloudModeRequested(true);
+      }
+    });
+  }, [access.role]);
 
   // Listen for Firebase Auth only after the user explicitly selects Cloud mode.
   useEffect(() => {
@@ -1680,7 +1694,9 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
   };
 
   const handleSignInCloud = async () => {
-    // Never attempt cloud authentication implicitly at startup.
+    // The first Google sign-in still requires a user gesture. Subsequent
+    // visits reuse the existing verified Firebase Auth session automatically.
+    try { localStorage.removeItem(CLOUD_PAUSED_KEY); } catch { /* ignore */ }
     setCloudModeRequested(true);
     try {
       if (!auth.currentUser?.emailVerified) await signInWithGoogle();
@@ -1692,7 +1708,8 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
   };
 
   const handleSignOutCloud = async () => {
-    // Explicitly stop all cloud listeners first and preserve the local cache.
+    // Respect explicit Local mode on future visits and preserve local cache.
+    try { localStorage.setItem(CLOUD_PAUSED_KEY, '1'); } catch { /* ignore */ }
     setCloudModeRequested(false);
     workspaceCacheOwnerRef.current = null;
     setCloudUser(null);

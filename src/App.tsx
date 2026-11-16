@@ -865,6 +865,7 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
         try {
           await cloudImportDatabaseChanges(activeCloudUid, {
           database: merged.nextDatabase,
+          targetPage: activePage,
           addedRows: merged.addedRows,
           updatedRows: merged.updatedRows,
           addedRowPages: merged.addedRowPages,

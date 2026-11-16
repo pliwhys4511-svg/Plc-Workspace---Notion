@@ -5,6 +5,7 @@ import {
   getDocs,
   onSnapshot,
   query,
+  runTransaction,
   serverTimestamp,
   setDoc,
   updateDoc,
@@ -43,6 +44,7 @@ import type {
   WorkspaceData,
 } from './types';
 import { createSeedWorkspace } from './seedData';
+import { planMissingCloudImportTargets } from './cloudImportPlan';
 
 export async function signInWithGoogle() {
   return signInWithPopup(auth, googleProvider);
@@ -814,10 +816,56 @@ export async function cloudCreateProjectBundle(
   }
 }
 
+/**
+ * Restore only missing Cloud Firestore targets for a user-initiated import.
+ * Firestore updateDoc() cannot update a document that does not exist.
+ * Transactions check existence first so existing pages/databases are NEVER
+ * overwritten by cached or CSV content.
+ */
+export async function cloudEnsureImportTargets(
+  uid: string,
+  database: Database,
+  page?: Page,
+): Promise<{ databaseCreated: boolean; pageCreated: boolean }> {
+  const safeDbId = ensureValidFirestoreId(database.id, 'db');
+  if (page && (!page.isDatabase || page.databaseId !== database.id)) {
+    throw new Error('Halaman tujuan tidak cocok dengan database import.');
+  }
+  const dbRef = doc(db, 'users', uid, 'databases', safeDbId);
+  const pageRef = page
+    ? doc(db, 'users', uid, 'pages', ensureValidFirestoreId(page.id, 'page'))
+    : null;
+  try {
+    return await runTransaction(db, async (tx) => {
+      // Reads must all happen before writes in a Firestore transaction.
+      const databaseSnapshot = await tx.get(dbRef);
+      const pageSnapshot = pageRef ? await tx.get(pageRef) : null;
+      const { databaseCreated, pageCreated } = planMissingCloudImportTargets(
+        databaseSnapshot.exists(),
+        pageSnapshot ? pageSnapshot.exists() : null,
+      );
+
+      if (databaseCreated) {
+        tx.set(dbRef, sanitizeDatabaseForCloud(uid, database, serverTimestamp()));
+      }
+      if (pageCreated && pageRef && page) {
+        tx.set(
+          pageRef,
+          sanitizePageForCloud(uid, page, serverTimestamp(), serverTimestamp()),
+        );
+      }
+      return { databaseCreated, pageCreated };
+    });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.CREATE, `users/${uid}/databases/${safeDbId}`);
+  }
+}
+
 export async function cloudImportDatabaseChanges(
   uid: string,
   params: {
     database: Database;
+    targetPage?: Page;
     addedRows: DatabaseRow[];
     updatedRows?: DatabaseRow[];
     addedRowPages: Page[];
@@ -887,10 +935,19 @@ export async function cloudImportDatabaseChanges(
   }
 
   try {
-    await cloudUpdateDatabase(uid, safeDbId, {
-      columns: params.database.columns,
-      groupByColumnId: params.database.groupByColumnId,
-    });
+    const { databaseCreated } = await cloudEnsureImportTargets(
+      uid,
+      params.database,
+      params.targetPage,
+    );
+    // Only UPDATE schemas on documents that actually exist. Missing database
+    // documents were just created with the complete imported schema.
+    if (!databaseCreated) {
+      await cloudUpdateDatabase(uid, safeDbId, {
+        columns: params.database.columns,
+        groupByColumnId: params.database.groupByColumnId,
+      });
+    }
     await commitOperationsInBatches(stage1Ops);
     await commitOperationsInBatches(stage2Ops);
   } catch (err) {

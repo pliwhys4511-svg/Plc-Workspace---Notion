@@ -18,12 +18,27 @@ import {
 
 export type TemplateImportMode = 'append' | 'replace' | 'new_page';
 
+export function safeImportError(error: unknown): string {
+  const value = error instanceof Error ? error.message : String(error);
+  // Older Firebase helpers throw serialized JSON containing Google identity
+  // metadata. Never echo these raw payloads back into the upload dialog.
+  if (/missing or insufficient permissions|permission.denied|firebase.*(ditolak|izin)/i.test(value)) {
+    return 'Firebase menolak akses. Pilih Mode Lokal untuk mengimpor tracker di browser ini, atau minta admin Firebase memeriksa izin akun.';
+  }
+  if (/^\s*\{|authInfo|providerInfo|userId/i.test(value) || value.length > 400) {
+    return 'Import belum berhasil. Periksa izin penyimpanan atau gunakan Mode Lokal.';
+  }
+  return value || 'Gagal mengimpor template.';
+}
+
 interface UploadTemplateModalProps {
   isOpen: boolean;
   onClose: () => void;
   activePageTitle?: string;
   activePageIsDatabase?: boolean;
   canTargetCurrentPage?: boolean;
+  storageMode?: 'local' | 'cloud';
+  onUseLocalMode?: () => void;
   onConfirmImport: (
     parsed: ParsedTemplateImport,
     mode: TemplateImportMode,
@@ -37,6 +52,8 @@ export const UploadTemplateModal: React.FC<UploadTemplateModalProps> = ({
   activePageTitle,
   activePageIsDatabase = false,
   canTargetCurrentPage = true,
+  storageMode = 'local',
+  onUseLocalMode,
   onConfirmImport,
 }) => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -134,7 +151,7 @@ export const UploadTemplateModal: React.FC<UploadTemplateModalProps> = ({
       setFileName('');
       onClose();
     } catch (err) {
-      setManualError(err instanceof Error ? err.message : 'Gagal mengimpor template.');
+      setManualError(safeImportError(err));
     } finally {
       setSubmitting(false);
     }
@@ -297,6 +314,19 @@ export const UploadTemplateModal: React.FC<UploadTemplateModalProps> = ({
               Tracker terdeteksi: {parsed.rows.length} campaign siap diimpor. Kolom kosong tidak menghapus data sebelumnya.
             </div>
           )}
+
+          <div className="rounded-lg border border-[var(--notion-border)] bg-[var(--notion-surface-muted)] px-3 py-2.5 text-xs text-[var(--notion-text-secondary)]">
+            <span className="font-semibold">Penyimpanan: </span>
+            {storageMode === 'local'
+              ? 'Mode Lokal — tersimpan di browser ini; tidak otomatis dibagikan ke tim.'
+              : 'Firebase Cloud — membutuhkan izin Firestore untuk menyimpan.'}
+            {storageMode === 'cloud' && onUseLocalMode && (
+              <button type="button" onClick={onUseLocalMode}
+                className="ml-2 rounded-md border border-[var(--notion-border-strong)] bg-[var(--notion-bg)] px-2 py-1 font-semibold text-[var(--notion-text)]">
+                Gunakan Mode Lokal
+              </button>
+            )}
+          </div>
 
           {/* Error Banner */}
           {displayError && (

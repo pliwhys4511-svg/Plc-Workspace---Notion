@@ -1905,6 +1905,8 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
             (activePage?.isDatabase && activePage.databaseId),
         )}
         canTargetCurrentPage={Boolean(activePage && !activePage.locked)}
+        storageMode={activeCloudUid ? 'cloud' : 'local'}
+        onUseLocalMode={() => { setUploadModalOpen(false); void handleSignOutCloud(); }}
         onConfirmImport={handleConfirmTemplateImport}
       />
 

@@ -459,7 +459,7 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
   const openWorkspaceCreator = (opts?: { parentId?: string | null; isDatabase?: boolean }) => {
     setCreateContext({
       parentId: opts?.parentId ?? null,
-      preferDatabase: opts?.isDatabase ?? false,
+      preferDatabase: opts?.isDatabase ?? (opts?.parentId == null),
     });
     setCreatorOpen(true);
   };

@@ -27,7 +27,7 @@ interface TopbarProps {
   onOpenSidebar: () => void;
   breadcrumbs: Page[];
   activePage: Page;
-  saveState: 'idle' | 'saving' | 'saved';
+  saveState: 'idle' | 'saving' | 'saved' | 'error';
   commentCount: number;
   wordCount: number;
   canUndo: boolean;
@@ -139,7 +139,7 @@ export const Topbar: React.FC<TopbarProps> = ({
 
         {saveState !== 'idle' && (
           <span className="hidden sm:inline text-xs text-[var(--notion-text-faint)] px-2 whitespace-nowrap">
-            {saveState === 'saving' ? 'Saving...' : 'Saved'}
+            {saveState === 'saving' ? 'Saving...' : saveState === 'error' ? 'Save failed' : 'Saved'}
           </span>
         )}
 

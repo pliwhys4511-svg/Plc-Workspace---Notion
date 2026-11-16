@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import type { WorkspaceData } from './types';
-import { createSeedWorkspace } from './seedData';
 
 const CACHE_KEY = 'plc.notion.offline.cache.v4';
 const OUTBOX_KEY = 'plc.notion.offline.outbox.v4';
@@ -34,28 +33,21 @@ export function saveCachedWorkspace(data: WorkspaceData): void {
 export function loadCachedWorkspace(): WorkspaceData | null {
   try {
     const raw = localStorage.getItem(CACHE_KEY);
-    if (!raw) return createSeedWorkspace();
+    if (!raw) return null;
     const parsed = JSON.parse(raw) as WorkspaceData;
-    if (!parsed || !Array.isArray(parsed.pages)) return createSeedWorkspace();
-    return migrateCachedWorkspace(parsed);
+    return parsed && Array.isArray(parsed.pages) ? parsed : null;
   } catch {
-    return createSeedWorkspace();
+    return null;
   }
 }
 
-// Caches written before the PLC Comm database existed get it added once, without touching user data.
-export function migrateCachedWorkspace(parsed: WorkspaceData): WorkspaceData {
-  if (parsed.pages.some((p) => p.id === 'page_plc_comm')) return parsed;
-
-  const seed = createSeedWorkspace();
-  parsed.pages = [...parsed.pages, seed.pages.find((p) => p.id === 'page_plc_comm')!];
-  parsed.databases = { ...parsed.databases, db_plc_comm: seed.databases.db_plc_comm };
+// Keep signed-in Firebase data isolated from local/anonymous workspace storage.
+export function saveCachedCloudWorkspace(uid: string, data: WorkspaceData): void {
   try {
-    saveCachedWorkspace(parsed);
+    localStorage.setItem(`${CACHE_KEY}.cloud.${encodeURIComponent(uid)}`, JSON.stringify(data));
   } catch {
-    // ignore
+    // Server/cloud persistence is authoritative for signed-in users.
   }
-  return parsed;
 }
 
 export function loadOutbox(): OfflineMutation[] {
@@ -71,7 +63,8 @@ export function saveOutbox(items: OfflineMutation[]): void {
   try {
     localStorage.setItem(OUTBOX_KEY, JSON.stringify(items));
   } catch {
-    // ignore storage errors
+    // Never report an edit as queued if it could not be persisted.
+    throw new Error('Offline sync queue could not be saved. Export a workspace backup.');
   }
 }
 
@@ -79,47 +72,47 @@ export function enqueueMutation(item: Omit<OfflineMutation, 'id' | 'createdAt'>)
   const queue = loadOutbox();
   const next: OfflineMutation = {
     ...item,
-    id: `mut_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    id: `mut_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
     createdAt: new Date().toISOString(),
   };
-  // Coalesce repeated PUT/PATCH to the same URL so offline edits stay compact
-  const filtered =
-    item.method === 'PUT' || item.method === 'PATCH'
-      ? queue.filter((q) => !(q.url === item.url && q.method === item.method))
-      : queue;
-  saveOutbox([...filtered, next]);
+  // PATCH payloads can contain independent fields: preserve their order.
+  // Only adjacent PUT snapshots to the same resource can be compacted.
+  const last = queue[queue.length - 1];
+  saveOutbox(item.method === 'PUT' && last?.method === 'PUT' && last.url === item.url
+    ? [...queue.slice(0, -1), next]
+    : [...queue, next]);
 }
 
-export async function flushOutbox(): Promise<number> {
-  if (staticHostMode) return 0;
-  const queue = loadOutbox();
-  if (queue.length === 0) return 0;
+let flushPromise: Promise<number> | null = null;
 
-  let synced = 0;
-  const remaining: OfflineMutation[] = [];
+export function flushOutbox(): Promise<number> {
+  if (staticHostMode) return Promise.resolve(0);
+  if (flushPromise) return flushPromise;
 
-  for (let i = 0; i < queue.length; i++) {
-    const m = queue[i];
-    try {
-      const res = await fetch(m.url, {
-        method: m.method,
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: m.body !== undefined ? JSON.stringify(m.body) : undefined,
-      });
-      if (!res.ok && res.status >= 500) {
-        remaining.push(...queue.slice(i));
+  flushPromise = (async () => {
+    let synced = 0;
+    while (!staticHostMode) {
+      // Fetch latest queue each iteration to avoid discarding changes added mid-request.
+      const next = loadOutbox()[0];
+      if (!next) break;
+      try {
+        const res = await fetch(next.url, {
+          method: next.method,
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: next.body !== undefined ? JSON.stringify(next.body) : undefined,
+        });
+        const type = res.headers.get('content-type') || '';
+        if (!res.ok || (res.status !== 204 && !type.includes('application/json'))) break;
+        saveOutbox(loadOutbox().filter((entry) => entry.id !== next.id));
+        synced++;
+      } catch {
         break;
       }
-      synced += 1;
-    } catch {
-      remaining.push(...queue.slice(i));
-      break;
     }
-  }
-
-  saveOutbox(remaining);
-  return synced;
+    return synced;
+  })().finally(() => { flushPromise = null; });
+  return flushPromise;
 }
 
 export function useOnlineStatus(): boolean {

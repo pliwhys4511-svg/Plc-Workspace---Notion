@@ -1,0 +1,29 @@
+name: Verify Workspace Changes
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund --legacy-peer-deps
+      - name: Run workspace unit and regression tests
+        run: npx tsx --test src/lib/workspaceOps.test.ts src/lib/templateTransfer.test.ts src/lib/workspaceAudit.test.ts
+      - name: TypeScript type check
+        run: npm run lint
+      - name: Build production bundle
+        run: npm run build

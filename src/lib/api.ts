@@ -15,7 +15,6 @@ import {
   enqueueMutation,
   isStaticHostMode,
   loadCachedWorkspace,
-  saveOutbox,
   setStaticHostMode,
 } from './offlineSync';
 import { createSeedWorkspace } from './seedData';
@@ -32,8 +31,10 @@ async function requestJson<T>(url: string, options?: RequestInit): Promise<T> {
 
   const contentType = res.headers.get('content-type') || '';
 
-  if (res.status === 404 || (res.ok && !contentType.includes('application/json'))) {
-    throw new Error('STATIC_HOST_NO_API');
+  if (!contentType.includes('application/json')) {
+    // HTML 404 on static hosting is not the same as a backend JSON 404.
+    if (res.status === 404 || res.ok) throw new Error('STATIC_HOST_NO_API');
+    throw new Error(`Unexpected API response (${res.status})`);
   }
 
   if (!res.ok) {
@@ -73,7 +74,6 @@ async function mutateWithOfflineQueue<T>(
   } catch (err) {
     if (err instanceof Error && err.message === 'STATIC_HOST_NO_API') {
       setStaticHostMode(true);
-      saveOutbox([]);
       return { synced: false };
     }
     // Queue on network errors (TypeError from fetch), rethrow HTTP 4xx errors
@@ -95,14 +95,19 @@ export interface BootstrapResponse {
 export const api = {
   async getWorkspace(): Promise<BootstrapResponse> {
     try {
+      // GitHub Pages never provides the Express API; avoid probing a nonexistent endpoint.
+      if (typeof window !== 'undefined' &&
+          (window.location.hostname.endsWith('.github.io') || window.location.protocol === 'file:')) {
+        setStaticHostMode(true);
+        return { locked: false, staticMode: true, workspace: loadCachedWorkspace() ?? createSeedWorkspace() };
+      }
       const data = await requestJson<BootstrapResponse>('/api/workspace');
       setStaticHostMode(false);
       return data;
     } catch (err) {
       if (err instanceof Error && err.message === 'STATIC_HOST_NO_API') {
         setStaticHostMode(true);
-        saveOutbox([]);
-        return {
+          return {
           locked: false,
           staticMode: true,
           workspace: loadCachedWorkspace() ?? createSeedWorkspace(),
@@ -119,8 +124,7 @@ export const api = {
             window.location.protocol === 'file:')
         ) {
           setStaticHostMode(true);
-          saveOutbox([]);
-          return {
+              return {
             locked: false,
             staticMode: true,
             workspace: createSeedWorkspace(),

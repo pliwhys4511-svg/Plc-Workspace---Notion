@@ -19,7 +19,6 @@ import {
   searchWorkspace,
 } from './workspaceOps';
 import { createSeedWorkspace } from './seedData';
-import { migrateCachedWorkspace } from './offlineSync';
 import {
   deserializeTableRows,
   sanitizeBlockForCloud,
@@ -293,22 +292,4 @@ test('seed ships the PLC Comm campaign tracker as schema only, with no personal 
   for (const page of seed.pages.filter((p) => p.isRowPage)) {
     assert.ok(rowPageIds.has(page.id), `orphan row page ${page.id}`);
   }
-});
-
-test('migrateCachedWorkspace adds PLC Comm once to an older cache without touching user data', () => {
-  const stale = createSeedWorkspace();
-  delete stale.databases.db_plc_comm;
-  delete stale.blocksByPage.page_plc_comm;
-  stale.pages = stale.pages.filter((p) => p.id !== 'page_plc_comm');
-  stale.pages.find((p) => p.id === 'page_home')!.title = 'My own home';
-
-  const migrated = migrateCachedWorkspace(stale);
-  assert.equal(migrated.pages.find((p) => p.id === 'page_home')?.title, 'My own home');
-  assert.ok(migrated.databases.db_plc_comm);
-  assert.equal(migrated.databases.db_plc_comm.rows.length, 0);
-  assert.equal(migrated.pages.filter((p) => p.id === 'page_plc_comm').length, 1);
-  assert.equal(migrated.pages.filter((p) => p.isRowPage && p.parentId === 'page_plc_comm').length, 0);
-
-  const again = migrateCachedWorkspace(migrated);
-  assert.equal(again.pages.filter((p) => p.id === 'page_plc_comm').length, 1);
 });

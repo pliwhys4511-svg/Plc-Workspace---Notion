@@ -30,6 +30,7 @@ import {
   loadCachedWorkspace,
   loadOutbox,
   saveCachedWorkspace,
+  saveCachedCloudWorkspace,
   useOnlineStatus,
 } from './lib/offlineSync';
 import { onAuthStateChanged, type User } from 'firebase/auth';
@@ -145,7 +146,7 @@ export default function App() {
   );
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [peekTarget, setPeekTarget] = useState<{ dbId: string; rowId: string } | null>(null);
-  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [toast, setToast] = useState<string | null>(null);
   const [pendingCount, setPendingCount] = useState<number>(() => loadOutbox().length);
   const [undoStack, setUndoStack] = useState<Record<string, Block[][]>>({});
@@ -158,6 +159,7 @@ export default function App() {
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevOnlineRef = useRef<boolean>(isOnline);
   const workspaceRef = useRef<WorkspaceData | null>(null);
+  const workspaceCacheOwnerRef = useRef<string | null>(null);
   const activePageIdRef = useRef<string>('');
   const activeCloudUid = cloudUser && cloudUser.emailVerified ? cloudUser.uid : null;
 
@@ -244,10 +246,12 @@ export default function App() {
       }
 
       if (user && user.emailVerified) {
+        workspaceCacheOwnerRef.current = null;
         setCloudUser(user);
         setCloudSyncStatus('connecting');
         try {
-          await seedOrEnsureCloudWorkspace(user, workspaceRef.current);
+          // Never initialize a new cloud account from another user's local/cache data.
+          await seedOrEnsureCloudWorkspace(user, null);
           if (cancelled) return;
           unsubCloud = subscribeCloudWorkspace(
             user.uid,
@@ -255,7 +259,8 @@ export default function App() {
               if (cancelled) return;
               setLockedMeta(null);
               setWorkspace(cloudWs);
-              saveCachedWorkspace(cloudWs);
+              workspaceCacheOwnerRef.current = user.uid;
+              saveCachedCloudWorkspace(user.uid, cloudWs);
               applyTheme(cloudWs.settings.theme);
               setCloudSyncStatus('synced');
               setLoading(false);
@@ -282,6 +287,7 @@ export default function App() {
           }
         }
       } else {
+        workspaceCacheOwnerRef.current = null;
         setCloudUser(null);
         setCloudSyncStatus('local');
       }
@@ -297,7 +303,9 @@ export default function App() {
   // Persist workspace snapshot locally whenever it changes for instant offline booting
   useEffect(() => {
     if (workspace) {
-      saveCachedWorkspace(workspace);
+      const owner = workspaceCacheOwnerRef.current;
+      if (owner) saveCachedCloudWorkspace(owner, workspace);
+      else saveCachedWorkspace(workspace);
     }
   }, [workspace]);
 
@@ -904,6 +912,7 @@ export default function App() {
           }
           markSaved();
         } catch {
+          setSaveState('error');
           showToast('Failed to save page changes');
         }
       }, 220);
@@ -982,6 +991,7 @@ export default function App() {
           }
           markSaved();
         } catch {
+          setSaveState('error');
           showToast('Failed to save blocks');
         }
       }, 260);

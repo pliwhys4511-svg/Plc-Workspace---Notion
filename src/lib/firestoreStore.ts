@@ -819,6 +819,7 @@ export async function cloudImportDatabaseChanges(
   params: {
     database: Database;
     addedRows: DatabaseRow[];
+    updatedRows?: DatabaseRow[];
     addedRowPages: Page[];
     addedBlocksByPage: Record<string, Block[]>;
     removedRowIds: string[];
@@ -860,6 +861,16 @@ export async function cloudImportDatabaseChanges(
         doc(db, 'users', uid, 'dbRows', safeRowId),
         sanitizeRowForCloud(uid, row, serverTimestamp(), serverTimestamp()),
       );
+    });
+  }
+
+  for (const row of params.updatedRows ?? []) {
+    const safeRowId = ensureValidFirestoreId(row.id, 'row');
+    stage2Ops.push((batch) => {
+      batch.update(doc(db, 'users', uid, 'dbRows', safeRowId), {
+        cells: sanitizeCellsForCloud(row.cells),
+        updatedAt: serverTimestamp(),
+      });
     });
   }
 

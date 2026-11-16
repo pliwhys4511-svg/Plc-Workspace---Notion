@@ -1427,7 +1427,7 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
     const optimistic: PageComment = {
       id: tempId,
       pageId: activePage.id,
-      author: cloudUser?.displayName || 'Workspace Member',
+      author: access.displayName,
       text,
       resolved: false,
       createdAt: new Date().toISOString(),
@@ -1448,7 +1448,7 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
         await cloudAddComment(activeCloudUid, optimistic);
         return;
       }
-      const res = await api.addComment(activePage.id, text);
+      const res = await api.addComment(activePage.id, text, access.displayName);
       refreshPendingCount();
       if (res.synced && res.data) {
         const savedComment = res.data.comment;

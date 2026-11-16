@@ -85,6 +85,7 @@ import { TemplatesModal } from './components/TemplatesModal';
 import { UploadTemplateModal, type TemplateImportMode } from './components/UploadTemplateModal';
 import { CommentsDrawer } from './components/CommentsDrawer';
 import { OfflineIndicator } from './components/PWAComponents';
+import { planPlcCommRestore } from './lib/plcCommRestore';
 import { AccessGate } from './components/AccessGate';
 import {
   clearWorkspaceAccess,
@@ -190,7 +191,8 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
   const workspaceRef = useRef<WorkspaceData | null>(null);
   const workspaceCacheOwnerRef = useRef<string | null>(null);
   const activePageIdRef = useRef<string>('');
-  const activeCloudUid = cloudUser && cloudUser.emailVerified ? cloudUser.uid : null;
+  // Never send writes to a cloud account that has not finished permission checks.
+  const activeCloudUid = cloudUser?.emailVerified && cloudSyncStatus === 'synced' ? cloudUser.uid : null;
 
   useEffect(() => {
     workspaceRef.current = workspace;
@@ -305,14 +307,14 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
             () => {
               if (!cancelled) {
                 setCloudSyncStatus('error');
-                showToast('Cloud Firestore permission or sync error');
+                showToast('Sinkronisasi Firebase ditolak. Gunakan Mode Lokal atau periksa izin Firestore.');
               }
             },
           );
         } catch {
           if (!cancelled) {
             setCloudSyncStatus('error');
-            showToast('Failed to connect Cloud Firestore');
+            showToast('Akses Firebase ditolak. Gunakan Mode Lokal atau periksa izin Firestore.');
           }
         }
       } else {
@@ -675,7 +677,43 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
     showToast(`Created from "${template.name}"`);
   };
 
+  const handleRestorePlcComm = async () => {
+    if (!workspace) return;
+    if (cloudUser && cloudSyncStatus !== 'synced') {
+      showToast('Firebase tidak mengizinkan perubahan. Klik Mode Lokal dahulu.');
+      return;
+    }
+    const planned = planPlcCommRestore(workspace);
+    if (planned.action === 'open') {
+      handleSelectPage(planned.page.id);
+      return;
+    }
+    try {
+      if (activeCloudUid) {
+        if (planned.action === 'restore') {
+          await cloudUpdatePage(activeCloudUid, planned.page.id, { isTrashed: false });
+        } else {
+          await cloudCreatePage(activeCloudUid, planned.page, [], planned.newDatabase);
+        }
+      } else {
+        await api.importWorkspace(planned.workspace);
+      }
+      setWorkspace(planned.workspace);
+      if (activeCloudUid) saveCachedCloudWorkspace(activeCloudUid, planned.workspace);
+      else saveCachedWorkspace(planned.workspace);
+      handleSelectPage(planned.page.id);
+      showToast(planned.action === 'restore' ? 'Halaman PLC Comm dipulihkan.' : 'Halaman PLC Comm siap untuk upload CSV.');
+    } catch {
+      setCloudSyncStatus('error');
+      showToast('Firebase menolak perubahan. Pilih Mode Lokal terlebih dahulu.');
+    }
+  };
+
   const handleOpenUploadTemplate = (targetDbId?: string) => {
+    if (cloudUser && cloudSyncStatus !== 'synced') {
+      showToast('Koneksi Firebase belum siap. Pilih Mode Lokal terlebih dahulu.');
+      return;
+    }
     const resolvedDbId =
       targetDbId ?? (activePage?.isDatabase ? activePage.databaseId ?? null : null);
     setUploadTargetDbId(resolvedDbId);
@@ -776,6 +814,9 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
     saveToGallery: boolean,
   ) => {
     if (!workspace) return;
+    if (cloudUser && cloudSyncStatus !== 'synced') {
+      throw new Error('Firebase belum siap. Keluar dari Cloud DB untuk mengimpor secara lokal.');
+    }
 
     if (saveToGallery) {
       const savedTpl = packageToNotionTemplate(parsed);
@@ -811,7 +852,8 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
 
       // Persist before presenting success; a failed import must not replace local state.
       if (activeCloudUid) {
-        await cloudImportDatabaseChanges(activeCloudUid, {
+        try {
+          await cloudImportDatabaseChanges(activeCloudUid, {
           database: merged.nextDatabase,
           addedRows: merged.addedRows,
           updatedRows: merged.updatedRows,
@@ -819,7 +861,11 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
           addedBlocksByPage: merged.addedBlocksByPage,
           removedRowIds: merged.removedRowIds,
           removedRowPageIds: merged.removedRowPageIds,
-        });
+          });
+        } catch (err) {
+          setCloudSyncStatus('error');
+          throw err;
+        }
       } else {
         await api.importWorkspace(nextWs);
       }
@@ -1561,8 +1607,11 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
 
   const handleSignOutCloud = async () => {
     await signOutGoogle();
-    showToast('Signed out of Cloud DB (Local mode active)');
+    workspaceCacheOwnerRef.current = null;
+    setCloudUser(null);
+    setCloudSyncStatus('local');
     await loadWorkspace();
+    showToast('Mode Lokal aktif. Data disimpan pada browser ini.');
   };
 
   const handlePushLocalToCloud = async () => {
@@ -1682,6 +1731,29 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
 
   if (!workspace) return null;
 
+  // Preserve existing cloud data on permission failures. Require an explicit
+  // disconnect rather than silently writing a cloud snapshot into local storage.
+  if (cloudUser && cloudSyncStatus === 'error') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[var(--notion-bg)] px-5 text-[var(--notion-text)]">
+        <div className="max-w-md w-full rounded-xl border border-amber-400/50 bg-[var(--notion-surface)] p-6 space-y-4 shadow-lg">
+          <h1 className="text-lg font-semibold">Akses Firebase ditolak</h1>
+          <p className="text-sm text-[var(--notion-text-secondary)]">
+            Firestore menolak akses akun Google ini. Data cloud tidak diubah.
+            Agar PLC Comm dan upload CSV bisa digunakan di browser ini, keluar dari Cloud DB dan pilih Mode Lokal.
+          </p>
+          <p className="text-xs text-[var(--notion-text-muted)]">
+            Mode Lokal hanya tersimpan di browser yang digunakan, bukan otomatis sinkron ke anggota tim lain.
+          </p>
+          <button type="button" onClick={() => { void handleSignOutCloud(); }}
+            className="rounded-lg bg-[#0064ff] px-4 py-2 text-sm font-semibold text-white">
+            Gunakan Mode Lokal
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const peekDb = peekTarget ? workspace.databases[peekTarget.dbId] : undefined;
   const peekRow = peekDb?.rows.find((r) => r.id === peekTarget?.rowId);
   const peekRowPage = peekRow
@@ -1694,6 +1766,7 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
     <div className="h-screen w-screen overflow-hidden flex bg-[var(--notion-bg)] text-[var(--notion-text)]">
       <Sidebar
         canManage={canManage}
+        onRestorePlcComm={() => { void handleRestorePlcComm(); }}
         isOpen={sidebarOpen}
         isMobile={isMobile}
         settings={workspace.settings}

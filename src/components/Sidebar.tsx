@@ -43,6 +43,7 @@ interface SidebarProps {
   onOpenSearch: () => void;
   onOpenSettings: () => void;
   onOpenTemplates: () => void;
+  onRestorePlcComm: () => void;
   onToggleTheme: (theme: ThemeMode) => void;
   onCloseSidebar: () => void;
   cloudUser?: User | null;
@@ -67,6 +68,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenSearch,
   onOpenSettings,
   onOpenTemplates,
+  onRestorePlcComm,
   onToggleTheme,
   onCloseSidebar,
   cloudUser,
@@ -378,6 +380,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
           >
             <LayoutTemplate className="w-4 h-4 text-[var(--notion-text-muted)]" />
             <span>Templates</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={onRestorePlcComm}
+            className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-md text-[13.5px] text-[var(--notion-text-secondary)] hover:bg-[var(--notion-hover)] hover:text-[var(--notion-text)] transition-colors"
+            title="Buka, pulihkan, atau buat halaman PLC Comm tanpa menghapus data sebelumnya"
+          >
+            <DatabaseIcon className="w-4 h-4 text-[#0064ff]" />
+            <span>Buka / Aktifkan PLC Comm</span>
           </button>
 
           {canManage && <button

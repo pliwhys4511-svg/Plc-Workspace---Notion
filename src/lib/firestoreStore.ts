@@ -44,6 +44,7 @@ import type {
   WorkspaceData,
 } from './types';
 import { createSeedWorkspace } from './seedData';
+import { planMissingCloudImportTargets } from './cloudImportPlan';
 
 export async function signInWithGoogle() {
   return signInWithPopup(auth, googleProvider);
@@ -839,8 +840,10 @@ export async function cloudEnsureImportTargets(
       // Reads must all happen before writes in a Firestore transaction.
       const databaseSnapshot = await tx.get(dbRef);
       const pageSnapshot = pageRef ? await tx.get(pageRef) : null;
-      const databaseCreated = !databaseSnapshot.exists();
-      const pageCreated = Boolean(pageRef && pageSnapshot && !pageSnapshot.exists());
+      const { databaseCreated, pageCreated } = planMissingCloudImportTargets(
+        databaseSnapshot.exists(),
+        pageSnapshot ? pageSnapshot.exists() : null,
+      );
 
       if (databaseCreated) {
         tx.set(dbRef, sanitizeDatabaseForCloud(uid, database, serverTimestamp()));

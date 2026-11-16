@@ -246,7 +246,7 @@ export default function App() {
       }
 
       if (user && user.emailVerified) {
-        workspaceCacheOwnerRef.current = user.uid;
+        workspaceCacheOwnerRef.current = null;
         setCloudUser(user);
         setCloudSyncStatus('connecting');
         try {
@@ -259,6 +259,7 @@ export default function App() {
               if (cancelled) return;
               setLockedMeta(null);
               setWorkspace(cloudWs);
+              workspaceCacheOwnerRef.current = user.uid;
               saveCachedCloudWorkspace(user.uid, cloudWs);
               applyTheme(cloudWs.settings.theme);
               setCloudSyncStatus('synced');
@@ -990,6 +991,7 @@ export default function App() {
           }
           markSaved();
         } catch {
+          setSaveState('error');
           showToast('Failed to save blocks');
         }
       }, 260);

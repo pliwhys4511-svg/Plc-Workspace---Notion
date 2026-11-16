@@ -27,6 +27,12 @@ export function validTeamUid(raw: string | null): string | null {
 
 export const PLC_SHARED_OWNER_UID = validTeamUid(firebaseConfig.sharedWorkspaceOwnerUid);
 
+export function isGoogleIdentityAllowedForRole(role: 'admin' | 'editor', uid: string | null): boolean {
+  if (!uid || !PLC_SHARED_OWNER_UID) return false;
+  return role === 'admin' ? uid === PLC_SHARED_OWNER_UID : uid !== PLC_SHARED_OWNER_UID;
+}
+
+
 export function teamInviteLink(ownerUid: string, location: string): string {
   const url = new URL(location);
   // A single canonical link works for all editors. The owner ID is pinned

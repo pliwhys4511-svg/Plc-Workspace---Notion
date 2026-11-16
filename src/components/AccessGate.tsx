@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { auth } from '../lib/firebase';
+import { signInWithGoogle } from '../lib/firestoreStore';
 import { ArrowRight, Eye, EyeOff, LockKeyhole, ShieldCheck, Users } from 'lucide-react';
 import {
   checkWorkspacePin,
@@ -18,6 +20,7 @@ export function AccessGate({ onSuccess }: AccessGateProps) {
   const [showPin, setShowPin] = useState(false);
   const [error, setError] = useState('');
   const [attempts, setAttempts] = useState(0);
+  const [signingIn, setSigningIn] = useState(false);
 
   const selectRole = (next: AccessRole) => {
     setRole(next);
@@ -25,7 +28,7 @@ export function AccessGate({ onSuccess }: AccessGateProps) {
     setError('');
   };
 
-  const login = (event: React.FormEvent<HTMLFormElement>) => {
+  const login = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const access = checkWorkspacePin(role, pin.trim(), editorName);
     if (!access) {
@@ -39,7 +42,22 @@ export function AccessGate({ onSuccess }: AccessGateProps) {
       return;
     }
     setError('');
-    onSuccess(access);
+    setSigningIn(true);
+    try {
+      // First visit: Google login once, from this user gesture. Future visits
+      // reuse Firebase Auth's persisted session automatically.
+      if (!auth.currentUser?.emailVerified) await signInWithGoogle();
+      if (!auth.currentUser?.emailVerified) {
+        throw new Error('Gunakan akun Google dengan email yang sudah terverifikasi.');
+      }
+      onSuccess(access);
+    } catch (err) {
+      setError(err instanceof Error && /terverifikasi/.test(err.message)
+        ? err.message
+        : 'Google login diperlukan sekali untuk menggunakan workspace bersama. Silakan coba lagi.');
+    } finally {
+      setSigningIn(false);
+    }
   };
 
   return (
@@ -52,7 +70,7 @@ export function AccessGate({ onSuccess }: AccessGateProps) {
           </div>
           <h1 className="mt-5 text-2xl font-bold tracking-tight dark:text-white">PLC Workspace</h1>
           <p className="mt-1.5 text-sm text-[#60758f] dark:text-slate-300">
-            Pilih akses untuk melanjutkan ke workspace.
+            Pilih akses dan masuk dengan Google sekali. Setelah itu workspace tim akan tersambung otomatis.
           </p>
 
           <form onSubmit={login} className="mt-7 space-y-5">
@@ -103,9 +121,9 @@ export function AccessGate({ onSuccess }: AccessGateProps) {
               {error && <p className="mt-2 text-xs text-red-600" role="alert">{error}</p>}
               {attempts > 4 && <p className="mt-2 text-xs text-[#60758f]">PIN tersimpan pada aplikasi statis; hubungi admin jika membutuhkan akses baru.</p>}
             </div>
-            <button type="submit"
+            <button type="submit" disabled={signingIn}
               className="w-full h-11 rounded-lg bg-[#0064ff] hover:bg-[#0055dd] text-white font-semibold text-sm flex items-center justify-center gap-2 transition-colors">
-              Masuk Workspace <ArrowRight className="w-4 h-4" />
+              {signingIn ? 'Menghubungkan akun Google...' : 'Masuk Workspace'} <ArrowRight className="w-4 h-4" />
             </button>
           </form>
         </div>

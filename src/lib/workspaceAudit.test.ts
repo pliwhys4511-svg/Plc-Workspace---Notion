@@ -48,7 +48,7 @@ test('offline flush preserves edits appended while a request is in progress', as
   let count = 0;
   globalThis.fetch = (async () => {
     if (++count === 1) { notify(); await pending; }
-    return { ok: true, status: 200, headers: { get: () => 'application/json' } } as Response;
+    return { ok: true, status: 200, headers: { get: () => 'application/json' } } as unknown as Response;
   }) as typeof fetch;
   try {
     const result = flushOutbox();
@@ -69,7 +69,7 @@ test('failed request stays queued rather than being treated as synchronized', as
   enqueueMutation({ method: 'DELETE', url: '/api/pages/a' });
   const previous = globalThis.fetch;
   globalThis.fetch = (async () =>
-    ({ ok: false, status: 403, headers: { get: () => 'application/json' } } as Response)
+    ({ ok: false, status: 403, headers: { get: () => 'application/json' } } as unknown as Response)
   ) as typeof fetch;
   try {
     assert.equal(await flushOutbox(), 0);

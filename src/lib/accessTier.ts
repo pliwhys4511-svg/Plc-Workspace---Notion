@@ -36,7 +36,7 @@ export function checkWorkspacePin(
 
 export function loadWorkspaceAccess(): WorkspaceAccess | null {
   try {
-    const raw = sessionStorage.getItem(SESSION_KEY);
+    const raw = localStorage.getItem(SESSION_KEY) ?? sessionStorage.getItem(SESSION_KEY);
     if (!raw) return null;
     const value: unknown = JSON.parse(raw);
     if (!value || typeof value !== 'object') return null;
@@ -58,12 +58,13 @@ export function loadWorkspaceAccess(): WorkspaceAccess | null {
 
 export function saveWorkspaceAccess(access: WorkspaceAccess): void {
   try {
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify(access));
+    localStorage.setItem(SESSION_KEY, JSON.stringify(access));
   } catch {
     // A missing session store just requires login again on refresh.
   }
 }
 
 export function clearWorkspaceAccess(): void {
+  try { localStorage.removeItem(SESSION_KEY); } catch { /* private mode */ }
   try { sessionStorage.removeItem(SESSION_KEY); } catch { /* private mode */ }
 }

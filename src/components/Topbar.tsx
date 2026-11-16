@@ -23,6 +23,7 @@ import type { Page, PageFont } from '../lib/types';
 import { TopbarOfflineBadge } from './PWAComponents';
 
 interface TopbarProps {
+  canManage: boolean;
   sidebarOpen: boolean;
   onOpenSidebar: () => void;
   breadcrumbs: Page[];
@@ -47,6 +48,7 @@ interface TopbarProps {
 }
 
 export const Topbar: React.FC<TopbarProps> = ({
+  canManage,
   sidebarOpen,
   onOpenSidebar,
   breadcrumbs,
@@ -292,7 +294,7 @@ export const Topbar: React.FC<TopbarProps> = ({
               <FileDown className="w-3.5 h-3.5 text-[var(--notion-text-muted)]" />
               <span>Download page (.md)</span>
             </button>
-            <button
+            {canManage && <button
               type="button"
               onClick={() => {
                 onDownloadWorkspaceJson();
@@ -302,7 +304,7 @@ export const Topbar: React.FC<TopbarProps> = ({
             >
               <Download className="w-3.5 h-3.5 text-[var(--notion-text-muted)]" />
               <span>Full workspace backup (.json)</span>
-            </button>
+            </button>}
           </div>
         )}
 
@@ -374,7 +376,7 @@ export const Topbar: React.FC<TopbarProps> = ({
                 </span>
               </button>
 
-              <button
+              {canManage && <button
                 type="button"
                 onClick={() => onUpdatePage({ locked: !activePage.locked })}
                 className="w-full flex items-center justify-between px-2 py-1.5 rounded-md text-xs text-[var(--notion-text)] hover:bg-[var(--notion-hover)]"
@@ -383,7 +385,7 @@ export const Topbar: React.FC<TopbarProps> = ({
                   {activePage.locked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
                   <span>{activePage.locked ? 'Unlock page' : 'Lock page'}</span>
                 </span>
-              </button>
+              </button>}
             </div>
 
             <div className="space-y-1 pt-2 border-t border-[var(--notion-border)]">

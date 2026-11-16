@@ -27,6 +27,7 @@ import { buildPageTree } from '../lib/workspaceOps';
 import { PWAInstallButton } from './PWAComponents';
 
 interface SidebarProps {
+  canManage: boolean;
   isOpen: boolean;
   isMobile: boolean;
   settings: WorkspaceSettings;
@@ -50,6 +51,7 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
+  canManage,
   isOpen,
   isMobile,
   settings,
@@ -307,7 +309,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="flex items-center justify-between px-3 py-2.5 gap-1">
           <button
             type="button"
-            onClick={onOpenSettings}
+            onClick={() => { if (canManage) onOpenSettings(); }}
             className="flex items-center gap-2 min-w-0 px-1.5 py-1 rounded-md hover:bg-[var(--notion-hover)] transition-colors text-left"
           >
             <span className="w-5 h-5 rounded bg-[var(--notion-active)] flex items-center justify-center text-xs shrink-0">
@@ -378,16 +380,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <span>Templates</span>
           </button>
 
-          <button
+          {canManage && <button
             type="button"
             onClick={onOpenSettings}
             className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-md text-[13.5px] text-[var(--notion-text-secondary)] hover:bg-[var(--notion-hover)] hover:text-[var(--notion-text)] transition-colors"
           >
             <Settings className="w-4 h-4 text-[var(--notion-text-muted)]" />
             <span>Settings & Hosting</span>
-          </button>
+          </button>}
 
-          {cloudUser ? (
+          {canManage && (cloudUser ? (
             <button
               type="button"
               onClick={onOpenSettings}
@@ -416,7 +418,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </span>
               </button>
             )
-          )}
+          ))}
 
           <PWAInstallButton />
         </div>
@@ -508,7 +510,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <button
             type="button"
             aria-label={settings.theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-            onClick={() => onToggleTheme(settings.theme === 'dark' ? 'light' : 'dark')}
+            onClick={() => { if (canManage) onToggleTheme(settings.theme === 'dark' ? 'light' : 'dark'); }}
             className="w-8 h-8 flex items-center justify-center rounded-md text-[var(--notion-text-muted)] hover:bg-[var(--notion-hover)] hover:text-[var(--notion-text)] transition-colors shrink-0"
             title={settings.theme === 'dark' ? 'Light mode' : 'Dark mode'}
           >
@@ -569,7 +571,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         <button
                           type="button"
                           aria-label={`Delete ${tp.title || 'Untitled'} permanently`}
-                          onClick={() => onDeleteForever(tp.id)}
+                          disabled={!canManage}
+                          onClick={() => { if (canManage) onDeleteForever(tp.id); }}
                           className="p-1 rounded hover:bg-red-500/15 text-red-600 dark:text-red-400"
                           title="Delete permanently"
                         >

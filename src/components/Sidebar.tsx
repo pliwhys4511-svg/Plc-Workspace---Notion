@@ -418,7 +418,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               >
                 <span className="flex items-center gap-2.5 min-w-0">
                   <CloudOff className="w-4 h-4 text-[var(--notion-text-muted)] shrink-0" />
-                  <span className="truncate">Connect Cloud DB</span>
+                  <span className="truncate">Coba Sinkronisasi Tim</span>
                 </span>
               </button>
             )

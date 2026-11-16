@@ -53,7 +53,7 @@ import {
   type ProjectTemplatePackage,
 } from './lib/templateTransfer';
 import { auth } from './lib/firebase';
-import { getTeamOwnerUid, requestTeamMembership, watchTeamMember } from './lib/teamWorkspace';
+import { getTeamOwnerUid, requestTeamMembership, watchTeamMember, PLC_SHARED_OWNER_UID } from './lib/teamWorkspace';
 import {
   cloudAddComment,
   cloudAddDatabaseRow,
@@ -192,7 +192,7 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
   const [undoStack, setUndoStack] = useState<Record<string, Block[][]>>({});
   // Team mode is always the source of truth. Editors only get shared access
   // after explicit approval in Firestore Security Rules.
-  const cloudModeRequested = true;
+  const [cloudModeRequested, setCloudModeRequested] = useState(true);
   const [teamOwnerUid, setTeamOwnerUid] = useState<string | null>(null);
   const [teamStatus, setTeamStatus] = useState<'connecting' | 'active' | 'pending' | 'invite' | 'signed-out' | 'error' | 'role-mismatch'>('connecting');
   const [cloudUser, setCloudUser] = useState<User | null>(null);
@@ -312,10 +312,17 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
       setCloudUser(user);
       setCloudSyncStatus('connecting');
       setTeamStatus('connecting');
-      const ownerUid = access.role === 'admin' ? user.uid : getTeamOwnerUid(user.uid);
+      // Every user opens the same URL and must target the same owner workspace.
+      // Choosing an Admin PIN must not create an unrelated Firebase workspace.
+      const ownerUid = getTeamOwnerUid(user.uid);
       setTeamOwnerUid(ownerUid);
-      if (!ownerUid || (access.role === 'editor' && ownerUid === user.uid)) {
+      if (!ownerUid || !PLC_SHARED_OWNER_UID) {
         setTeamStatus('invite');
+        return;
+      }
+      if ((access.role === 'admin' && user.uid !== ownerUid) ||
+          (access.role === 'editor' && user.uid === ownerUid)) {
+        setTeamStatus('role-mismatch');
         return;
       }
 
@@ -1841,7 +1848,7 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
       connecting: 'Menghubungkan Workspace Tim',
       active: 'Workspace Aktif',
       pending: 'Menunggu Persetujuan Admin',
-      invite: 'Link Workspace Tim Diperlukan',
+      invite: 'Konfigurasi Workspace Tim Belum Siap',
       'signed-out': 'Masuk Google untuk Melanjutkan',
       error: 'Workspace Tim Belum Terhubung',
       'role-mismatch': 'Akun Editor Tidak Sesuai',
@@ -1854,9 +1861,9 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
             {teamStatus === 'pending'
               ? 'Permintaan akses telah dikirim. Admin perlu menyetujuinya di Settings → Akses Tim. Setelah disetujui, workspace akan terbuka otomatis.'
               : teamStatus === 'invite'
-                ? 'Minta link undangan workspace kepada Admin, lalu buka link tersebut dan masuk sebagai Editor.'
+                ? 'Alamat workspace utama belum dikonfigurasi. Admin perlu memeriksa konfigurasi tim.'
                 : teamStatus === 'role-mismatch'
-                  ? 'Identitas Google ini sudah disetujui dengan nama Editor berbeda. Keluar dan pilih nama yang sesuai.'
+                  ? 'Pilihan Admin atau Editor tidak sesuai dengan akun Google ini. Keluar dan pilih akses yang sesuai.'
                   : teamStatus === 'signed-out'
                     ? 'Masuk dengan akun Google yang terverifikasi sekali. Sesi berikutnya akan tersambung otomatis.'
                     : teamStatus === 'connecting'
@@ -1871,10 +1878,25 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
               Masuk Google / Coba Lagi
             </button>
           )}
-          <button type="button" onClick={onLogout}
-            className="text-xs font-medium text-[var(--notion-text-secondary)] hover:underline">
-            Keluar / Ganti Akun
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+            {(teamStatus === 'error' || teamStatus === 'invite') && (
+              <button type="button"
+                onClick={() => {
+                  // Keep existing browser-local work available if Firestore
+                  // production rules have not been deployed yet. No shared-sync
+                  // success is claimed in local fallback mode.
+                  setCloudModeRequested(false);
+                  void loadWorkspace();
+                }}
+                className="rounded-lg border border-[var(--notion-border-strong)] px-3 py-2 text-xs font-medium text-[var(--notion-text)]">
+                Buka Mode Lokal (tidak tersinkron)
+              </button>
+            )}
+            <button type="button" onClick={onLogout}
+              className="text-xs font-medium text-[var(--notion-text-secondary)] hover:underline">
+              Keluar / Ganti Akun
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -1915,7 +1937,7 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
         onCloseSidebar={() => setSidebarOpen(false)}
         cloudUser={cloudUser}
         cloudSyncStatus={cloudSyncStatus}
-        onSignInCloud={undefined}
+        onSignInCloud={!cloudModeRequested ? () => setCloudModeRequested(true) : undefined}
       />
 
       <main id="main" className="flex-1 min-w-0 h-full flex flex-col bg-[var(--notion-bg)]">

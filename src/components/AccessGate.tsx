@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { auth } from '../lib/firebase';
 import { signInWithGoogle } from '../lib/firestoreStore';
+import { isGoogleIdentityAllowedForRole } from '../lib/teamWorkspace';
 import { ArrowRight, Eye, EyeOff, LockKeyhole, ShieldCheck, Users } from 'lucide-react';
 import {
   checkWorkspacePin,
@@ -46,13 +47,22 @@ export function AccessGate({ onSuccess }: AccessGateProps) {
     try {
       // First visit: Google login once, from this user gesture. Future visits
       // reuse Firebase Auth's persisted session automatically.
-      if (!auth.currentUser?.emailVerified) await signInWithGoogle();
+      const currentUid = auth.currentUser?.uid ?? null;
+      if (!auth.currentUser?.emailVerified ||
+          !isGoogleIdentityAllowedForRole(access.role, currentUid)) {
+        // Switching from the Admin's Google account to Rafly (or vice versa)
+        // must open Google's account picker, not reuse the wrong identity.
+        await signInWithGoogle();
+      }
       if (!auth.currentUser?.emailVerified) {
         throw new Error('Gunakan akun Google dengan email yang sudah terverifikasi.');
       }
+      if (!isGoogleIdentityAllowedForRole(access.role, auth.currentUser.uid)) {
+        throw new Error('Akun Google ini tidak sesuai dengan pilihan Admin atau Editor. Pilih akun yang benar.');
+      }
       onSuccess(access);
     } catch (err) {
-      setError(err instanceof Error && /terverifikasi/.test(err.message)
+      setError(err instanceof Error && /terverifikasi|tidak sesuai/.test(err.message)
         ? err.message
         : 'Google login diperlukan sekali untuk menggunakan workspace bersama. Silakan coba lagi.');
     } finally {

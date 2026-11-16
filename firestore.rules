@@ -28,6 +28,23 @@ service cloud.firestore {
       return isVerifiedUser() && request.auth.uid == userId;
     }
 
+    // A verified Google identity may access an owner's workspace only after
+    // that owner has explicitly approved a membership for this exact UID.
+    function isApprovedEditor(userId) {
+      return isVerifiedUser() &&
+        exists(/databases/$(database)/documents/users/$(userId)/members/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(userId)/members/$(request.auth.uid)).data.role == 'editor' &&
+        get(/databases/$(database)/documents/users/$(userId)/members/$(request.auth.uid)).data.uid == request.auth.uid;
+    }
+
+    function canReadWorkspace(userId) {
+      return isOwner(userId) || isApprovedEditor(userId);
+    }
+
+    function canEditWorkspace(userId) {
+      return isOwner(userId) || isApprovedEditor(userId);
+    }
+
     function isValidId(id) {
       return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
@@ -95,7 +112,7 @@ service cloud.firestore {
         data.ownerId is string &&
         isValidId(data.ownerId) &&
         data.ownerId == userId &&
-        data.ownerId == request.auth.uid &&
+        canEditWorkspace(userId) &&
         data.id is string &&
         isValidId(data.id) &&
         data.id == pageId &&
@@ -145,7 +162,7 @@ service cloud.firestore {
         data.ownerId is string &&
         isValidId(data.ownerId) &&
         data.ownerId == userId &&
-        data.ownerId == request.auth.uid &&
+        canEditWorkspace(userId) &&
         data.id is string &&
         isValidId(data.id) &&
         data.id == blockId &&
@@ -201,7 +218,7 @@ service cloud.firestore {
         data.ownerId is string &&
         isValidId(data.ownerId) &&
         data.ownerId == userId &&
-        data.ownerId == request.auth.uid &&
+        canEditWorkspace(userId) &&
         data.id is string &&
         isValidId(data.id) &&
         data.id == databaseId &&
@@ -227,7 +244,7 @@ service cloud.firestore {
         data.ownerId is string &&
         isValidId(data.ownerId) &&
         data.ownerId == userId &&
-        data.ownerId == request.auth.uid &&
+        canEditWorkspace(userId) &&
         data.id is string &&
         isValidId(data.id) &&
         data.id == rowId &&
@@ -254,7 +271,7 @@ service cloud.firestore {
         data.ownerId is string &&
         isValidId(data.ownerId) &&
         data.ownerId == userId &&
-        data.ownerId == request.auth.uid &&
+        canEditWorkspace(userId) &&
         data.id is string &&
         isValidId(data.id) &&
         data.id == commentId &&
@@ -274,6 +291,41 @@ service cloud.firestore {
     // 4. Match blocks per collection
     match /users/{userId} {
       allow get: if isValidId(userId) && isOwner(userId);
+
+      // Owner-managed membership: no public access and no self-granted editor roles.
+      match /members/{memberId} {
+        allow get: if isValidId(memberId) && (isOwner(userId) ||
+          (isVerifiedUser() && request.auth.uid == memberId));
+        allow list: if isOwner(userId);
+        allow create: if isValidId(memberId) && isOwner(userId) &&
+          incoming().keys().hasOnly(['uid', 'name', 'email', 'role', 'createdAt']) &&
+          incoming().keys().hasAll(['uid', 'name', 'email', 'role', 'createdAt']) &&
+          incoming().uid == memberId && incoming().uid is string &&
+          incoming().role == 'editor' &&
+          incoming().name is string && incoming().name.size() <= 120 &&
+          incoming().email is string && incoming().email.size() <= 254 &&
+          incoming().createdAt == request.time;
+        allow update: if false;
+        allow delete: if isOwner(userId);
+      }
+
+      // An applicant may request access, but only the owner can approve it.
+      // A PIN is NOT an authorization credential.
+      match /joinRequests/{requestUid} {
+        allow get: if isOwner(userId) || (isVerifiedUser() && request.auth.uid == requestUid);
+        allow list: if isOwner(userId);
+        allow create: if isVerifiedUser() && request.auth.uid == requestUid &&
+          userRootExists(userId) &&
+          incoming().keys().hasOnly(['uid', 'email', 'name', 'createdAt']) &&
+          incoming().keys().hasAll(['uid', 'email', 'name', 'createdAt']) &&
+          incoming().uid == request.auth.uid &&
+          incoming().email == request.auth.token.email &&
+          incoming().name is string && incoming().name.size() >= 1 && incoming().name.size() <= 120 &&
+          incoming().createdAt == request.time;
+        allow update: if false;
+        allow delete: if isOwner(userId) || (isVerifiedUser() && request.auth.uid == requestUid);
+      }
+
       allow list: if isVerifiedUser() && existing().uid == request.auth.uid && userId == request.auth.uid;
       allow create: if isValidId(userId) &&
         isOwner(userId) &&
@@ -290,8 +342,8 @@ service cloud.firestore {
       allow delete: if isValidId(userId) && isOwner(userId);
 
       match /meta/{docId} {
-        allow get: if isValidId(docId) && isOwner(userId) && userRootExists(userId);
-        allow list: if isOwner(userId) && existing().ownerId == request.auth.uid;
+        allow get: if isValidId(docId) && canReadWorkspace(userId) && userRootExists(userId);
+        allow list: if canReadWorkspace(userId) && existing().ownerId == userId;
         allow create: if isValidId(docId) &&
           docId == 'settings' &&
           isOwner(userId) &&
@@ -310,22 +362,23 @@ service cloud.firestore {
       }
 
       match /pages/{pageId} {
-        allow get: if isValidId(pageId) && isOwner(userId) && userRootExists(userId);
-        allow list: if isOwner(userId) && existing().ownerId == request.auth.uid;
+        allow get: if isValidId(pageId) && canReadWorkspace(userId) && userRootExists(userId);
+        allow list: if canReadWorkspace(userId) && existing().ownerId == userId;
         allow create: if isValidId(pageId) &&
-          isOwner(userId) &&
+          canEditWorkspace(userId) &&
           isValidPage(incoming(), userId, pageId) &&
           incoming().createdAt == request.time &&
           incoming().updatedAt == request.time &&
           userRootExists(userId);
         allow update: if isValidId(pageId) &&
-          isOwner(userId) &&
+          canEditWorkspace(userId) &&
           isValidPage(incoming(), userId, pageId) &&
           incoming().id == existing().id &&
           incoming().ownerId == existing().ownerId &&
           incoming().isDatabase == existing().isDatabase &&
           incoming().createdAt == existing().createdAt &&
           incoming().updatedAt == request.time &&
+          (isOwner(userId) || incoming().locked == existing().locked) &&
           userRootExists(userId) && (
             // Action: Edit appearance, title, icon, or hierarchy
             incoming().diff(existing()).affectedKeys().hasOnly([
@@ -337,20 +390,20 @@ service cloud.firestore {
               'isFavorite', 'isTrashed', 'locked', 'updatedAt'
             ])
           );
-        allow delete: if isValidId(pageId) && isOwner(userId) && userRootExists(userId);
+        allow delete: if isValidId(pageId) && userRootExists(userId) && (isOwner(userId) || (isApprovedEditor(userId) && existing().isRowPage == true));
       }
 
       match /blocks/{blockId} {
-        allow get: if isValidId(blockId) && isOwner(userId) && userRootExists(userId);
-        allow list: if isOwner(userId) && existing().ownerId == request.auth.uid;
+        allow get: if isValidId(blockId) && canReadWorkspace(userId) && userRootExists(userId);
+        allow list: if canReadWorkspace(userId) && existing().ownerId == userId;
         allow create: if isValidId(blockId) &&
-          isOwner(userId) &&
+          canEditWorkspace(userId) &&
           isValidBlock(incoming(), userId, blockId) &&
           incoming().updatedAt == request.time &&
           userRootExists(userId) &&
           pageExists(userId, incoming().pageId);
         allow update: if isValidId(blockId) &&
-          isOwner(userId) &&
+          canEditWorkspace(userId) &&
           isValidBlock(incoming(), userId, blockId) &&
           incoming().id == existing().id &&
           incoming().ownerId == existing().ownerId &&
@@ -368,19 +421,19 @@ service cloud.firestore {
               'position', 'indent', 'updatedAt'
             ])
           );
-        allow delete: if isValidId(blockId) && isOwner(userId) && userRootExists(userId);
+        allow delete: if isValidId(blockId) && canEditWorkspace(userId) && userRootExists(userId);
       }
 
       match /databases/{databaseId} {
-        allow get: if isValidId(databaseId) && isOwner(userId) && userRootExists(userId);
-        allow list: if isOwner(userId) && existing().ownerId == request.auth.uid;
+        allow get: if isValidId(databaseId) && canReadWorkspace(userId) && userRootExists(userId);
+        allow list: if canReadWorkspace(userId) && existing().ownerId == userId;
         allow create: if isValidId(databaseId) &&
-          isOwner(userId) &&
+          canEditWorkspace(userId) &&
           isValidDatabase(incoming(), userId, databaseId) &&
           incoming().updatedAt == request.time &&
           userRootExists(userId);
         allow update: if isValidId(databaseId) &&
-          isOwner(userId) &&
+          canEditWorkspace(userId) &&
           isValidDatabase(incoming(), userId, databaseId) &&
           incoming().id == existing().id &&
           incoming().ownerId == existing().ownerId &&
@@ -395,21 +448,21 @@ service cloud.firestore {
               'title', 'icon', 'columns', 'updatedAt'
             ])
           );
-        allow delete: if isValidId(databaseId) && isOwner(userId) && userRootExists(userId);
+        allow delete: if isValidId(databaseId) && canEditWorkspace(userId) && userRootExists(userId);
       }
 
       match /dbRows/{rowId} {
-        allow get: if isValidId(rowId) && isOwner(userId) && userRootExists(userId);
-        allow list: if isOwner(userId) && existing().ownerId == request.auth.uid;
+        allow get: if isValidId(rowId) && canReadWorkspace(userId) && userRootExists(userId);
+        allow list: if canReadWorkspace(userId) && existing().ownerId == userId;
         allow create: if isValidId(rowId) &&
-          isOwner(userId) &&
+          canEditWorkspace(userId) &&
           isValidDatabaseRow(incoming(), userId, rowId) &&
           incoming().createdAt == request.time &&
           incoming().updatedAt == request.time &&
           userRootExists(userId) &&
           databaseExists(userId, incoming().databaseId);
         allow update: if isValidId(rowId) &&
-          isOwner(userId) &&
+          canEditWorkspace(userId) &&
           isValidDatabaseRow(incoming(), userId, rowId) &&
           incoming().id == existing().id &&
           incoming().ownerId == existing().ownerId &&
@@ -423,21 +476,21 @@ service cloud.firestore {
             // Action: Reorder row position
             incoming().diff(existing()).affectedKeys().hasOnly(['position', 'updatedAt'])
           );
-        allow delete: if isValidId(rowId) && isOwner(userId) && userRootExists(userId);
+        allow delete: if isValidId(rowId) && canEditWorkspace(userId) && userRootExists(userId);
       }
 
       match /comments/{commentId} {
-        allow get: if isValidId(commentId) && isOwner(userId) && userRootExists(userId);
-        allow list: if isOwner(userId) && existing().ownerId == request.auth.uid;
+        allow get: if isValidId(commentId) && canReadWorkspace(userId) && userRootExists(userId);
+        allow list: if canReadWorkspace(userId) && existing().ownerId == userId;
         allow create: if isValidId(commentId) &&
-          isOwner(userId) &&
+          canEditWorkspace(userId) &&
           isValidPageComment(incoming(), userId, commentId) &&
           incoming().createdAt == request.time &&
           incoming().updatedAt == request.time &&
           userRootExists(userId) &&
           pageExists(userId, incoming().pageId);
         allow update: if isValidId(commentId) &&
-          isOwner(userId) &&
+          canEditWorkspace(userId) &&
           isValidPageComment(incoming(), userId, commentId) &&
           incoming().id == existing().id &&
           incoming().ownerId == existing().ownerId &&
@@ -451,7 +504,7 @@ service cloud.firestore {
             // Action: Edit comment text
             incoming().diff(existing()).affectedKeys().hasOnly(['text', 'updatedAt'])
           );
-        allow delete: if isValidId(commentId) && isOwner(userId) && userRootExists(userId);
+        allow delete: if isValidId(commentId) && canEditWorkspace(userId) && userRootExists(userId);
       }
     }
   }

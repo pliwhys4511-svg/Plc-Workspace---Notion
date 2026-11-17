@@ -1,13 +1,18 @@
 import React, { useEffect, useState } from 'react';
 import { Check, Copy, ShieldCheck, UserMinus, Users, X } from 'lucide-react';
+import { EDITOR_NAMES } from '../lib/accessTier';
 import {
-  approveTeamMember, rejectTeamRequest, revokeTeamMember,
+  rejectTeamRequest, revokeTeamMember,
   teamInviteLink, watchJoinRequests, watchTeamMembers,
-  type JoinRequest, type TeamMember,
+  registerDirectEditor, revokeDirectEditor, watchDirectEditors,
+  type JoinRequest, type TeamMember, type DirectEditorEmail,
 } from '../lib/teamWorkspace';
 
 export function TeamAccessPanel({ ownerUid }: { ownerUid: string }) {
   const [requests, setRequests] = useState<JoinRequest[]>([]);
+  const [direct, setDirect] = useState<DirectEditorEmail[]>([]);
+  const [email, setEmail] = useState('');
+  const [name, setName] = useState<string>('Rafly');
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -16,14 +21,16 @@ export function TeamAccessPanel({ ownerUid }: { ownerUid: string }) {
   useEffect(() => {
     const unsubRequests = watchJoinRequests(ownerUid, setRequests, setError);
     const unsubMembers = watchTeamMembers(ownerUid, setMembers, setError);
-    return () => { unsubRequests(); unsubMembers(); };
+    const unsubDirect = watchDirectEditors(ownerUid, setDirect, setError);
+    return () => { unsubRequests(); unsubMembers(); unsubDirect(); };
   }, [ownerUid]);
 
   const approve = async (request: JoinRequest) => {
     setBusy(request.uid); setError('');
     try {
-      await approveTeamMember(ownerUid, request);
-      setNotice(`Akses editor ${request.name} telah disetujui.`);
+      await registerDirectEditor(ownerUid, request.email, request.name);
+      await rejectTeamRequest(ownerUid, request.uid);
+      setNotice(`Email ${request.name} terdaftar; akses otomatis aktif.`);
     } catch {
       setError('Gagal menyetujui editor. Periksa Security Rules Firebase.');
     } finally {
@@ -38,9 +45,7 @@ export function TeamAccessPanel({ ownerUid }: { ownerUid: string }) {
         <h3 className="text-sm font-semibold text-[var(--notion-text)]">Akses Tim & Workspace Bersama</h3>
       </div>
       <p className="text-xs text-[var(--notion-text-secondary)]">
-        Kirim link undangan kepada editor. Mereka login Google satu kali,
-        kemudian pilih nama Editor. Setujui permintaan di bawah; setelah itu
-        semua perubahan akan tersinkron otomatis ke satu workspace.
+        Daftarkan email Google lima editor satu kali. Editor langsung masuk dan tersinkron ke workspace yang sama tanpa permintaan persetujuan saat login.
       </p>
       <button type="button"
         onClick={async () => {
@@ -54,11 +59,38 @@ export function TeamAccessPanel({ ownerUid }: { ownerUid: string }) {
         className="flex items-center gap-2 rounded-lg border border-[var(--notion-border-strong)] px-3 py-2 text-xs font-semibold text-[var(--notion-text)] hover:bg-[var(--notion-hover)]">
         <Copy className="w-4 h-4"/> Salin link workspace untuk editor
       </button>
+      <div className="rounded-xl border border-[var(--notion-border)] p-3 space-y-3">
+        <div className="text-xs font-semibold text-[var(--notion-text)]">Akses langsung berdasarkan email Google</div>
+        <div className="flex flex-wrap gap-2">
+          <select value={name} onChange={(e) => setName(e.target.value)} className="rounded-md border border-[var(--notion-border)] bg-[var(--notion-bg)] p-2 text-xs">
+            {EDITOR_NAMES.map((editor) => <option key={editor} value={editor}>{editor}</option>)}
+          </select>
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email Google anggota tim" className="flex-1 min-w-[180px] rounded-md border border-[var(--notion-border)] bg-[var(--notion-bg)] p-2 text-xs"/>
+          <button type="button" disabled={!email.trim() || busy === 'register'}
+            onClick={async () => {
+              setBusy('register'); setError('');
+              try { await registerDirectEditor(ownerUid, email, name); setEmail(''); setNotice('Akses langsung berhasil didaftarkan.'); }
+              catch (err) { setError(err instanceof Error ? err.message : 'Gagal mendaftarkan email.'); }
+              finally { setBusy(null); }
+            }}
+            className="rounded-md bg-[#0064ff] text-white px-3 py-2 text-xs font-medium disabled:opacity-50">Daftarkan email</button>
+        </div>
+        {direct.length === 0 && <p className="text-xs text-[var(--notion-text-muted)]">Belum ada email terdaftar untuk akses langsung.</p>}
+        {direct.map((entry) => (
+          <div key={entry.email} className="flex items-center justify-between gap-2 text-xs">
+            <div className="min-w-0"><strong>{entry.name}</strong><div className="break-all text-[var(--notion-text-muted)]">{entry.email}</div></div>
+            <button type="button" aria-label={`Cabut email ${entry.name}`}
+              onClick={async () => { try { await revokeDirectEditor(ownerUid, entry.email); setNotice('Akses email dicabut.'); } catch { setError('Gagal mencabut akses email.'); } }}
+              className="p-2 text-red-500"><UserMinus className="w-4 h-4"/></button>
+          </div>
+        ))}
+      </div>
+      <p className="text-[11px] text-[var(--notion-text-muted)]">Akses lama berdasarkan UID tetap berlaku. Untuk mencabut sepenuhnya, hapus email dan akses UID lama jika keduanya tersedia.</p>
       <div className="rounded-xl border border-[var(--notion-border)] p-3 space-y-2">
         <div className="flex items-center gap-2 text-xs font-semibold text-[var(--notion-text)]">
-          <Users className="w-4 h-4"/> Menunggu persetujuan ({requests.length})
+          <Users className="w-4 h-4"/> Permintaan lama ({requests.length})
         </div>
-        {requests.length === 0 && <p className="text-xs text-[var(--notion-text-muted)]">Belum ada permintaan akses.</p>}
+        {requests.length === 0 && <p className="text-xs text-[var(--notion-text-muted)]">Tidak ada permintaan lama.</p>}
         {requests.map((request) => (
           <div key={request.uid} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[var(--notion-hover)] px-3 py-2">
             <div className="min-w-0 text-xs">
@@ -69,7 +101,7 @@ export function TeamAccessPanel({ ownerUid }: { ownerUid: string }) {
               <button type="button" disabled={busy === request.uid}
                 onClick={() => { void approve(request); }}
                 className="rounded-md bg-[#0064ff] px-2 py-1.5 text-xs font-medium text-white flex items-center gap-1">
-                <Check className="w-3.5 h-3.5"/> Setujui
+                <Check className="w-3.5 h-3.5"/> Daftarkan email
               </button>
               <button type="button" title="Tolak permintaan"
                 onClick={async () => { try { await rejectTeamRequest(ownerUid, request.uid); } catch { setError('Gagal menolak permintaan.'); } }}
@@ -81,7 +113,7 @@ export function TeamAccessPanel({ ownerUid }: { ownerUid: string }) {
         ))}
       </div>
       <div className="rounded-xl border border-[var(--notion-border)] p-3 space-y-2">
-        <div className="text-xs font-semibold text-[var(--notion-text)]">Editor yang aktif ({members.length})</div>
+        <div className="text-xs font-semibold text-[var(--notion-text)]">Akses UID lama ({members.length})</div>
         {members.length === 0 && <p className="text-xs text-[var(--notion-text-muted)]">Belum ada editor yang disetujui.</p>}
         {members.map((member) => (
           <div key={member.uid} className="flex items-center justify-between gap-2 py-1">

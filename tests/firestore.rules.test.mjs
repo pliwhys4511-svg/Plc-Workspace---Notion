@@ -106,6 +106,29 @@ test('Firestore rules enforce owner-approved shared workspace access', async (t)
       await assertFails(deleteDoc(doc(editorDb, 'users', owner, 'members', editor)));
     });
 
+    await t.test('registered email gets direct read and write access without a join request', async () => {
+      await seed();
+      const admin = auth(owner);
+      const member = auth(editor);
+      const email = editor + '@example.invalid';
+      const ref = doc(admin, 'users', owner, 'editorEmails', email);
+      await assertFails(setDoc(doc(member, 'users', owner, 'editorEmails', email), {
+        email, name: 'Rafly', role: 'editor',
+      }));
+      await assertSucceeds(setDoc(ref, { email, name: 'Rafly', role: 'editor' }));
+      await assertSucceeds(getDoc(doc(member, 'users', owner, 'editorEmails', email)));
+      await assertFails(getDocs(collection(member, 'users', owner, 'editorEmails')));
+      await assertSucceeds(getDoc(doc(member, 'users', owner, 'pages', 'page_one')));
+      await assertSucceeds(getDocs(query(collection(member, 'users', owner, 'pages'), where('ownerId', '==', owner))));
+      await assertSucceeds(updateDoc(doc(member, 'users', owner, 'pages', 'page_one'), {
+        title: 'Direct editor update', updatedAt: serverTimestamp(),
+      }));
+      await assertFails(getDoc(doc(auth(stranger), 'users', owner, 'pages', 'page_one')));
+      await assertFails(getDoc(doc(env.authenticatedContext('unverified', { email_verified: false, email }).firestore(), 'users', owner, 'pages', 'page_one')));
+      await assertSucceeds(deleteDoc(ref));
+      await assertFails(getDoc(doc(member, 'users', owner, 'pages', 'page_one')));
+    });
+
     await t.test('revoking an Editor immediately blocks owner data access', async () => {
       await seed();
       const ownerDb = auth(owner);

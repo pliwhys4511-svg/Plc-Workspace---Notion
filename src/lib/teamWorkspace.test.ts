@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { teamInviteLink, validTeamUid, PLC_SHARED_OWNER_UID, isGoogleIdentityAllowedForRole } from './teamWorkspace';
+import { teamInviteLink, validTeamUid, PLC_SHARED_OWNER_UID, isGoogleIdentityAllowedForRole, normalizeEditorEmail } from './teamWorkspace';
 
 test('invitation links preserve the workspace route and carry the owner UID', () => {
   const owner = '18Js95RNBtfbWw0ln2XjGjdYGNn1';
@@ -49,4 +49,12 @@ test('Rafly uses own verified Google identity even when Admin session was saved 
   assert.equal(isGoogleIdentityAllowedForRole('editor', raflyUid), true);
   assert.equal(isGoogleIdentityAllowedForRole('admin', raflyUid), false);
   assert.equal(isGoogleIdentityAllowedForRole('editor', null), false);
+});
+
+test('direct editor email access is normalized and does not use approval requests', () => {
+  assert.equal(normalizeEditorEmail(' Rafly@Example.Invalid '), 'rafly@example.invalid');
+  assert.throws(() => normalizeEditorEmail('a/b@example.invalid'));
+  const source = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
+  assert.match(source, /watchEditorAccess\(/);
+  assert.doesNotMatch(source, /requestTeamMembership\(/);
 });

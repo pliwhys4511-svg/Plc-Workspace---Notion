@@ -143,3 +143,66 @@ export function watchTeamMembers(
 export async function revokeTeamMember(ownerUid: string, memberUid: string): Promise<void> {
   await deleteDoc(doc(db, 'users', ownerUid, 'members', memberUid));
 }
+
+export interface DirectEditorEmail {
+  email: string;
+  name: string;
+  role: 'editor';
+}
+
+export function normalizeEditorEmail(value: string): string {
+  const email = value.trim().toLowerCase();
+  if (email.length > 254 || !/^[^\s/@]+@[^\s/@]+\.[^\s/@]+$/.test(email)) {
+    throw new Error('Masukkan alamat email Google yang valid.');
+  }
+  return email;
+}
+
+export async function registerDirectEditor(ownerUid: string, email: string, name: string): Promise<void> {
+  const id = normalizeEditorEmail(email);
+  await setDoc(doc(db, 'users', ownerUid, 'editorEmails', id), { email: id, name, role: 'editor' });
+}
+
+export async function revokeDirectEditor(ownerUid: string, email: string): Promise<void> {
+  await deleteDoc(doc(db, 'users', ownerUid, 'editorEmails', normalizeEditorEmail(email)));
+}
+
+export function watchDirectEditors(ownerUid: string, onChange: (members: DirectEditorEmail[]) => void, onError: (message: string) => void): Unsubscribe {
+  return onSnapshot(collection(db, 'users', ownerUid, 'editorEmails'),
+    (snap) => onChange(snap.docs.map((entry) => ({ email: entry.id, name: String(entry.data().name ?? ''), role: 'editor' as const }))),
+    () => onError('Aturan Firebase untuk daftar email editor belum aktif.'));
+}
+
+// Keep existing approved UID-based memberships working, while registered
+// email accounts enter directly. Neither source can be created by an editor.
+export function watchEditorAccess(ownerUid: string, user: User, onChange: (member: TeamMember | null) => void, onError: (error: Error) => void): Unsubscribe {
+  if (!user.emailVerified || !user.email) {
+    onError(new Error('Akun Google harus memiliki email terverifikasi.'));
+    return () => {};
+  }
+  let direct: TeamMember | null = null;
+  let legacy: TeamMember | null = null;
+  let directReady = false;
+  let legacyReady = false;
+  let directError: Error | null = null;
+  let legacyError: Error | null = null;
+  const emit = () => {
+    if (!directReady || !legacyReady) return;
+    if (direct || legacy) onChange(direct ?? legacy);
+    else if (directError || legacyError) onError(directError ?? legacyError!);
+    else onChange(null);
+  };
+  const stopLegacy = watchTeamMember(ownerUid, user.uid, (member) => {
+    legacy = member; legacyReady = true; legacyError = null; emit();
+  }, (error) => {
+    legacy = null; legacyReady = true; legacyError = error; emit();
+  });
+  const stopDirect = onSnapshot(doc(db, 'users', ownerUid, 'editorEmails', normalizeEditorEmail(user.email)), (snap) => {
+    const data = snap.data();
+    direct = data?.role === 'editor' ? { uid: user.uid, email: String(data.email), name: String(data.name), role: 'editor' } : null;
+    directReady = true; directError = null; emit();
+  }, () => {
+    direct = null; directReady = true; directError = new Error('Aturan akses langsung Firebase belum aktif.'); emit();
+  });
+  return () => { stopLegacy(); stopDirect(); };
+}

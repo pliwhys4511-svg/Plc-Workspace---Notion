@@ -30,11 +30,20 @@ service cloud.firestore {
 
     // A verified Google identity may access an owner's workspace only after
     // that owner has explicitly approved a membership for this exact UID.
+    function hasDirectEditorEmail(userId) {
+      return isVerifiedUser() && request.auth.token.email is string &&
+        exists(/databases/$(database)/documents/users/$(userId)/editorEmails/$(request.auth.token.email.lower())) &&
+        get(/databases/$(database)/documents/users/$(userId)/editorEmails/$(request.auth.token.email.lower())).data.role == 'editor' &&
+        get(/databases/$(database)/documents/users/$(userId)/editorEmails/$(request.auth.token.email.lower())).data.email == request.auth.token.email.lower();
+    }
+
     function isApprovedEditor(userId) {
-      return isVerifiedUser() &&
-        exists(/databases/$(database)/documents/users/$(userId)/members/$(request.auth.uid)) &&
-        get(/databases/$(database)/documents/users/$(userId)/members/$(request.auth.uid)).data.role == 'editor' &&
-        get(/databases/$(database)/documents/users/$(userId)/members/$(request.auth.uid)).data.uid == request.auth.uid;
+      return isVerifiedUser() && (
+        hasDirectEditorEmail(userId) ||
+        (exists(/databases/$(database)/documents/users/$(userId)/members/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(userId)/members/$(request.auth.uid)).data.role == 'editor' &&
+         get(/databases/$(database)/documents/users/$(userId)/members/$(request.auth.uid)).data.uid == request.auth.uid)
+      );
     }
 
     function canReadWorkspace(userId) {
@@ -291,6 +300,23 @@ service cloud.firestore {
     // 4. Match blocks per collection
     match /users/{userId} {
       allow get: if isValidId(userId) && isOwner(userId);
+
+      // Register verified team email addresses once; no approval step at login.
+      // Only the owner may add, change, list, or revoke direct access.
+      match /editorEmails/{emailId} {
+        allow get: if isOwner(userId) || (isVerifiedUser() &&
+          request.auth.token.email is string && request.auth.token.email.lower() == emailId);
+        allow list: if isOwner(userId);
+        allow create, update: if isOwner(userId) &&
+          incoming().keys().hasAll(['email', 'name', 'role']) &&
+          incoming().keys().hasOnly(['email', 'name', 'role']) &&
+          incoming().email is string && incoming().email == emailId &&
+          incoming().email == incoming().email.lower() &&
+          incoming().email.size() <= 254 &&
+          incoming().name in ['Mala', 'Rafly', 'Maynard', 'Arif', 'Jasmin'] &&
+          incoming().role == 'editor';
+        allow delete: if isOwner(userId);
+      }
 
       // Owner-managed membership: no public access and no self-granted editor roles.
       match /members/{memberId} {

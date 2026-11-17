@@ -1,9 +1,10 @@
 import type { User } from 'firebase/auth';
 import {
-  collection, deleteDoc, doc, getDoc, onSnapshot, serverTimestamp,
+  collection, deleteDoc, doc, getDoc, onSnapshot, runTransaction, serverTimestamp,
   setDoc, type Unsubscribe,
 } from 'firebase/firestore';
 import { db } from './firebase';
+import { EDITOR_NAMES } from './accessTier';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 export interface JoinRequest {
@@ -161,6 +162,52 @@ export function normalizeEditorEmail(value: string): string {
 export async function registerDirectEditor(ownerUid: string, email: string, name: string): Promise<void> {
   const id = normalizeEditorEmail(email);
   await setDoc(doc(db, 'users', ownerUid, 'editorEmails', id), { email: id, name, role: 'editor' });
+}
+
+/** Validates the entire proposed list before any writes are attempted. */
+export function prepareBulkEditors(rows: {name: string; email: string}[]): DirectEditorEmail[] {
+  const emails = new Set<string>();
+  const names = new Set<string>();
+  const result: DirectEditorEmail[] = [];
+  for (const row of rows) {
+    if (!row.email.trim()) continue;
+    if (!EDITOR_NAMES.some(name => name === row.name)) throw new Error('Nama editor tidak dikenal.');
+    const email = normalizeEditorEmail(row.email);
+    if (emails.has(email) || names.has(row.name)) throw new Error('Nama dan email editor tidak boleh duplikat.');
+    emails.add(email); names.add(row.name);
+    result.push({ name: row.name, email, role: 'editor' });
+  }
+  if (!result.length) throw new Error('Isi minimal satu email editor.');
+  return result;
+}
+
+/** Only prefill names with one unambiguous old request; admin reviews before saving. */
+export function suggestBulkEditorEmails(requests: JoinRequest[]): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const name of EDITOR_NAMES) {
+    const matches = new Set<string>();
+    for (const request of requests.filter(row => row.name === name)) {
+      try { matches.add(normalizeEditorEmail(request.email)); } catch { /* skip invalid address */ }
+    }
+    if (matches.size === 1) result[name] = [...matches][0];
+  }
+  return result;
+}
+
+/** Atomic enrollment; never silently change another editor's existing grant. */
+export async function registerDirectEditorsBulk(ownerUid: string, rows: {name: string; email: string}[]): Promise<number> {
+  const editors = prepareBulkEditors(rows);
+  await runTransaction(db, async tx => {
+    const refs = editors.map(entry => doc(db, 'users', ownerUid, 'editorEmails', entry.email));
+    const snapshots = await Promise.all(refs.map(ref => tx.get(ref)));
+    snapshots.forEach((snapshot, index) => {
+      if (snapshot.exists() && snapshot.data().name !== editors[index].name) {
+        throw new Error('Email tersebut sudah terdaftar dengan nama editor lain.');
+      }
+    });
+    editors.forEach((entry, index) => tx.set(refs[index], entry));
+  });
+  return editors.length;
 }
 
 export async function revokeDirectEditor(ownerUid: string, email: string): Promise<void> {

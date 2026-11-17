@@ -1,3 +1,4 @@
+import { createHighImpactColumns, isHighImpactHeaders, HIGH_IMPACT_TITLE } from './highImpactTracker';
 import type {
   Block,
   BlockType,
@@ -515,6 +516,38 @@ export function parseNotionCsvToDatabaseImport(
 
   const headers = matrix[0];
   const dataRows = matrix.slice(1);
+  if (isHighImpactHeaders(headers)) {
+    const columns = createHighImpactColumns();
+    const indexFor = (name: string) => headers.findIndex(h => h.trim().toLowerCase().replace(/\s+/g, ' ') === name.toLowerCase());
+    const rows: ProjectTemplateRowInput[] = dataRows.map((raw, idx) => {
+      const line = idx + 2;
+      const value = (name: string) => (raw[indexFor(name)] ?? '').trim();
+      const title = value('Course Name');
+      if (!title) throw new Error(`Baris ${line}: Course Name tidak boleh kosong.`);
+      const date = (name: string) => {
+        const text = value(name);
+        if (!text) return null;
+        const result = tryNormalizeDate(text);
+        if (!result) throw new Error(`Baris ${line}: ${name} tidak valid. Gunakan YYYY-MM-DD.`);
+        return result;
+      };
+      const options = (name: string, column: DatabaseColumn) => value(name) ? findOrAddOption(column, value(name)) : null;
+      return { cells: {
+        col_title: title, col_pic: value('PIC Directorate'),
+        col_category: options('Category', columns[2]), col_production: options('Production', columns[3]),
+        col_status: options('Status', columns[4]), col_start: date('Start Date'), col_end: date('End Date'),
+        col_url: value('Course URL') || null,
+        col_access: parsePlcCommMetric(value('Total Access'), 'Total Access', line),
+        col_completion: parsePlcCommMetric(value('Total Completion'), 'Total Completion', line),
+      } };
+    });
+    return {
+      sourceFormat: 'notion-csv', name: HIGH_IMPACT_TITLE, icon: '🎓', cover: 'grad_sage',
+      category: 'Learning & Development', description: 'E-learning module production tracker.',
+      isDatabase: true, fullWidth: true, activeView: 'table', groupByColumnId: 'col_status',
+      columns, rows, blocks: [], summary: `${columns.length} kolom, ${rows.length} course.`,
+    };
+  }
   if (isPlcCommTrackerHeaders(headers)) {
     const columns = createPlcCommTrackerColumns();
     const indexFor = (name: string) => headers.findIndex(

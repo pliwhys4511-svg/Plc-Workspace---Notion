@@ -1,4 +1,5 @@
 import type { NotionTemplate } from './templates';
+import { HIGH_IMPACT_TEMPLATE } from './highImpactTracker';
 import type { DatabaseColumn } from './types';
 
 const STATUS: DatabaseColumn = {
@@ -29,6 +30,7 @@ const dbTemplate = (
 
 /** Empty structures only; no example records or internal employee identities. */
 export const PROJECT_STARTERS: NotionTemplate[] = [
+  HIGH_IMPACT_TEMPLATE,
   dbTemplate(
     'tpl_ld_projects', 'Project & Task Tracker', '📋',
     'Kelola pekerjaan, penanggung jawab, prioritas, deadline, dan progress project.',

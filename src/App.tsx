@@ -17,6 +17,7 @@ import type {
   WorkspaceSettings,
 } from './lib/types';
 import { api } from './lib/api';
+import { planHighImpactTracker } from './lib/highImpactTracker';
 import {
   createId,
   getBreadcrumbs,
@@ -791,6 +792,32 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
       blocks: template.blocks,
     });
     showToast(`Created from "${template.name}"`);
+  };
+
+  const handleOpenHighImpact = async () => {
+    if (!workspace) return;
+    if (cloudModeRequested && !activeCloudUid) {
+      showToast('Workspace bersama belum tersinkron. Periksa koneksi tim.');
+      return;
+    }
+    try {
+      const plan = planHighImpactTracker(workspace);
+      if (plan.action !== 'open') {
+        if (activeCloudUid) {
+          await cloudEnsureImportTargets(activeCloudUid, plan.database, plan.page);
+          // Cloud subscription remains authoritative; do not copy an empty
+          // placeholder over rows already created by another team member.
+        } else {
+          await api.importWorkspace(plan.workspace);
+          setWorkspace(plan.workspace);
+          saveCachedWorkspace(plan.workspace);
+        }
+      }
+      handleSelectPage(plan.page.id);
+      showToast('Tracker High Impact siap digunakan. Upload CSV untuk memasukkan data course.');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Gagal membuka tracker High Impact.');
+    }
   };
 
   const handleRestorePlcComm = async () => {
@@ -1914,6 +1941,7 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
       <Sidebar
         canManage={canManage}
         onRestorePlcComm={() => { void handleRestorePlcComm(); }}
+        onOpenHighImpact={() => { void handleOpenHighImpact(); }}
         isOpen={sidebarOpen}
         isMobile={isMobile}
         settings={workspace.settings}

@@ -24,7 +24,7 @@ import {
 import type { User } from 'firebase/auth';
 import type { Page, PageTreeNode, ThemeMode, WorkspaceSettings } from '../lib/types';
 import { buildPageTree } from '../lib/workspaceOps';
-import { findVisiblePlcCommPage, otherWorkspacePages, isPlcCommPage } from '../lib/workspaceNavigation';
+import { findVisiblePlcCommPage, isPlcCommPage } from '../lib/workspaceNavigation';
 import { PWAInstallButton } from './PWAComponents';
 import { findHighImpactPage, HIGH_IMPACT_TITLE } from '../lib/highImpactTracker';
 
@@ -136,7 +136,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
     );
   };
 
-  const tree = useMemo(() => buildPageTree(otherWorkspacePages(pages), null), [pages]);
+  const tree = useMemo(() => {
+    const nodes = buildPageTree(pages, null);
+    // Both existing trackers are ordinary top-level Workspace pages.
+    // Keep PLC Comm first without changing any stored page positions.
+    return [...nodes.filter(node => isPlcCommPage(node.page)), ...nodes.filter(node => !isPlcCommPage(node.page))];
+  }, [pages]);
   const plcCommPage = useMemo(() => findVisiblePlcCommPage(pages), [pages]);
   const highImpactPage = useMemo(() => findHighImpactPage(pages), [pages]);
 
@@ -198,13 +203,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <button
             type="button"
             onClick={() => {
-              onSelectPage(page.id);
+              if (isPlcCommPage(page)) onRestorePlcComm();
+              else onSelectPage(page.id);
               setMenuPageId(null);
             }}
             className="flex-1 min-w-0 flex items-center gap-1.5 py-0.5 text-left"
           >
-            {renderPageGlyph(page)}
-            <span className="truncate">{page.title || 'Untitled'}</span>
+            <span className="w-4 flex items-center justify-center shrink-0">
+              {isPlcCommPage(page) ? <DatabaseIcon className="w-3.5 h-3.5 text-[#0064ff] shrink-0" /> : renderPageGlyph(page)}
+            </span>
+            <span className="truncate" title={page.title}>{page.title || 'Untitled'}</span>
           </button>
 
           <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 shrink-0">
@@ -475,26 +483,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
 
             <div className="space-y-0.5">
-              <button
-                type="button"
-                onClick={onRestorePlcComm}
-                aria-label="Buka PLC Comm di Workspace"
-                title="Buka atau pulihkan halaman PLC Comm"
-                aria-current={plcCommPage?.id === activePageId ? 'page' : undefined}
-                className={`w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-[13.5px] text-left transition-colors ${
-                  plcCommPage?.id === activePageId
-                    ? 'bg-[var(--notion-active)] text-[var(--notion-text)] font-medium'
-                    : 'text-[var(--notion-text-secondary)] hover:bg-[var(--notion-hover)] hover:text-[var(--notion-text)]'
-                }`}
-              >
-                <DatabaseIcon className="w-3.5 h-3.5 text-[#0064ff] shrink-0" />
-                <span className="truncate">PLC Comm</span>
-              </button>
+              {!plcCommPage && (
+                <button type="button" onClick={onRestorePlcComm}
+                  aria-label="Buka PLC Comm di Workspace"
+                  title="Buka atau pulihkan halaman PLC Comm"
+                  className="w-full flex items-center gap-1.5 pl-8 pr-1.5 py-1.5 rounded-md text-[13.5px] text-left text-[var(--notion-text-secondary)] hover:bg-[var(--notion-hover)] hover:text-[var(--notion-text)]">
+                  <span className="w-4 flex items-center justify-center shrink-0"><DatabaseIcon className="w-3.5 h-3.5 text-[#0064ff]" /></span>
+                  <span className="truncate">PLC Comm</span>
+                </button>
+              )}
               {!highImpactPage && (
                 <button type="button" onClick={onOpenHighImpact}
                   title={HIGH_IMPACT_TITLE}
-                  className="w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-[13.5px] text-left text-[var(--notion-text-secondary)] hover:bg-[var(--notion-hover)] hover:text-[var(--notion-text)]">
-                  <DatabaseIcon className="w-3.5 h-3.5 text-[#0064ff] shrink-0" />
+                  className="w-full flex items-center gap-1.5 pl-8 pr-1.5 py-1.5 rounded-md text-[13.5px] text-left text-[var(--notion-text-secondary)] hover:bg-[var(--notion-hover)] hover:text-[var(--notion-text)]">
+                  <span className="w-4 flex items-center justify-center shrink-0" aria-hidden="true">🎓</span>
                   <span className="truncate">{HIGH_IMPACT_TITLE}</span>
                 </button>
               )}

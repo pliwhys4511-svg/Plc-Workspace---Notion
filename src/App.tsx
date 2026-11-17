@@ -53,7 +53,7 @@ import {
   type ProjectTemplatePackage,
 } from './lib/templateTransfer';
 import { auth } from './lib/firebase';
-import { getTeamOwnerUid, requestTeamMembership, watchTeamMember, PLC_SHARED_OWNER_UID } from './lib/teamWorkspace';
+import { getTeamOwnerUid, watchEditorAccess, PLC_SHARED_OWNER_UID } from './lib/teamWorkspace';
 import {
   cloudAddComment,
   cloudAddDatabaseRow,
@@ -363,20 +363,19 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
         } else {
           // An editor creates their own identity only; they must never seed
           // or overwrite the Admin's project or cached workspace.
-          await ensureUserRoot(user);
           if (cancelled) return;
-          unsubMember = watchTeamMember(
-            ownerUid, user.uid,
+          unsubMember = watchEditorAccess(
+            ownerUid, user,
             (member) => {
               if (cancelled) return;
               if (!member) {
                 if (unsubCloud) { unsubCloud(); unsubCloud = null; }
                 setCloudSyncStatus('connecting');
                 setTeamStatus('pending');
-                void requestTeamMembership(ownerUid, user, access.displayName).catch(() => {
-                  if (!cancelled) setTeamStatus('error');
-                });
+                // No approval request: access is granted automatically when the verified email is registered.
               } else if (member.name !== access.displayName) {
+                if (unsubCloud) { unsubCloud(); unsubCloud = null; }
+                setCloudSyncStatus('connecting');
                 setTeamStatus('role-mismatch');
               } else {
                 startSharedSubscription(ownerUid);
@@ -1847,7 +1846,7 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
     const titles: Record<'connecting' | 'active' | 'pending' | 'invite' | 'signed-out' | 'error' | 'role-mismatch', string> = {
       connecting: 'Menghubungkan Workspace Tim',
       active: 'Workspace Aktif',
-      pending: 'Menunggu Persetujuan Admin',
+      pending: 'Email Editor Belum Terdaftar',
       invite: 'Konfigurasi Workspace Tim Belum Siap',
       'signed-out': 'Masuk Google untuk Melanjutkan',
       error: 'Workspace Tim Belum Terhubung',
@@ -1859,7 +1858,7 @@ function WorkspaceApp({ access, onLogout }: WorkspaceAppProps) {
           <h1 className="text-lg font-semibold">{titles[teamStatus]}</h1>
           <p className="text-sm text-[var(--notion-text-secondary)]">
             {teamStatus === 'pending'
-              ? 'Permintaan akses telah dikirim. Admin perlu menyetujuinya di Settings → Akses Tim. Setelah disetujui, workspace akan terbuka otomatis.'
+              ? 'Email Google yang dipakai belum terdaftar sebagai editor. Gunakan akun Google tim yang sudah terdaftar; setelah email terdaftar, workspace terbuka otomatis tanpa persetujuan login.'
               : teamStatus === 'invite'
                 ? 'Alamat workspace utama belum dikonfigurasi. Admin perlu memeriksa konfigurasi tim.'
                 : teamStatus === 'role-mismatch'

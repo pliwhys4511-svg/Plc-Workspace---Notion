@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createSeedWorkspace } from './seedData';
+import { readFileSync } from 'node:fs';
+import { buildPageTree } from './workspaceOps';
+import { planHighImpactTracker } from './highImpactTracker';
 import {
   findVisiblePlcCommPage,
   isPlcCommPage,
@@ -37,4 +40,15 @@ test('trashed PLC Comm is not the active entry but is excluded from normal tree'
   page.isTrashed = true;
   assert.equal(findVisiblePlcCommPage(ws.pages), undefined);
   assert.equal(otherWorkspacePages(ws.pages).some(isPlcCommPage), false);
+});
+
+test('PLC Comm and High Impact are root-level nodes rendered by the same sidebar tree', () => {
+  const ws = planHighImpactTracker(createSeedWorkspace()).workspace;
+  const root = buildPageTree(ws.pages, null);
+  assert.ok(root.some(node => node.page.id === 'page_plc_comm'));
+  assert.ok(root.some(node => node.page.id === 'page_high_impact_elearning_2026'));
+  const sidebar = readFileSync(new URL('../components/Sidebar.tsx', import.meta.url), 'utf8');
+  assert.match(sidebar, /buildPageTree\(pages, null\)/);
+  assert.match(sidebar, /\{!plcCommPage && \(/);
+  assert.match(sidebar, /tree\.map\(\(node\) => renderTreeNode\(node, 0\)\)/);
 });

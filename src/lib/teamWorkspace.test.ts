@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { teamInviteLink, validTeamUid, PLC_SHARED_OWNER_UID, isGoogleIdentityAllowedForRole, normalizeEditorEmail } from './teamWorkspace';
+import { teamInviteLink, validTeamUid, PLC_SHARED_OWNER_UID, isGoogleIdentityAllowedForRole, normalizeEditorEmail, prepareBulkEditors, suggestBulkEditorEmails } from './teamWorkspace';
 
 test('invitation links preserve the workspace route and carry the owner UID', () => {
   const owner = '18Js95RNBtfbWw0ln2XjGjdYGNn1';
@@ -57,4 +57,26 @@ test('direct editor email access is normalized and does not use approval request
   const source = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
   assert.match(source, /watchEditorAccess\(/);
   assert.doesNotMatch(source, /requestTeamMembership\(/);
+});
+
+test('bulk editor enrollment validates and normalizes all addresses, skipping blanks', () => {
+  assert.deepEqual(prepareBulkEditors([
+    { name: 'Mala', email: ' MALA@example.invalid ' },
+    { name: 'Rafly', email: 'rafly@example.invalid' },
+    { name: 'Arif', email: '' },
+  ]), [
+    { name: 'Mala', email: 'mala@example.invalid', role: 'editor' },
+    { name: 'Rafly', email: 'rafly@example.invalid', role: 'editor' },
+  ]);
+  assert.throws(() => prepareBulkEditors([{name:'Unknown', email:'unknown@example.invalid'}]));
+  assert.throws(() => prepareBulkEditors([{name:'Mala', email:'a@example.invalid'}, {name:'Rafly', email:'A@example.invalid'}]));
+  assert.throws(() => prepareBulkEditors([{name:'Mala', email:'a@example.invalid'}, {name:'Mala', email:'b@example.invalid'}]));
+});
+test('bulk enrollment suggests only unambiguous old request email addresses', () => {
+  assert.deepEqual(suggestBulkEditorEmails([
+    {uid:'r1',name:'Rafly',email:'rafly@example.invalid'},
+    {uid:'m1',name:'Mala',email:'one@example.invalid'},
+    {uid:'m2',name:'Mala',email:'two@example.invalid'},
+    {uid:'x1',name:'Unknown',email:'x@example.invalid'},
+  ]), { Rafly: 'rafly@example.invalid' });
 });

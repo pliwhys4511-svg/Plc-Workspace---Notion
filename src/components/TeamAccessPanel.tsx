@@ -5,6 +5,7 @@ import {
   rejectTeamRequest, revokeTeamMember,
   teamInviteLink, watchJoinRequests, watchTeamMembers,
   registerDirectEditor, revokeDirectEditor, watchDirectEditors,
+  registerDirectEditorsBulk, suggestBulkEditorEmails,
   type JoinRequest, type TeamMember, type DirectEditorEmail,
 } from '../lib/teamWorkspace';
 
@@ -13,6 +14,7 @@ export function TeamAccessPanel({ ownerUid }: { ownerUid: string }) {
   const [direct, setDirect] = useState<DirectEditorEmail[]>([]);
   const [email, setEmail] = useState('');
   const [name, setName] = useState<string>('Rafly');
+  const [bulkEmails, setBulkEmails] = useState<Record<string, string>>({});
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -61,6 +63,48 @@ export function TeamAccessPanel({ ownerUid }: { ownerUid: string }) {
       </button>
       <div className="rounded-xl border border-[var(--notion-border)] p-3 space-y-3">
         <div className="text-xs font-semibold text-[var(--notion-text)]">Akses langsung berdasarkan email Google</div>
+        <div className="rounded-lg border border-[var(--notion-border)] bg-[var(--notion-bg)] p-3 space-y-3">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <strong className="text-xs">Daftarkan Editor Sekaligus</strong>
+            <button type="button" disabled={busy !== null}
+              onClick={() => {
+                const suggestions = suggestBulkEditorEmails(requests);
+                setBulkEmails(prev => {
+                  const next = {...prev};
+                  for (const editor of EDITOR_NAMES) {
+                    if (!next[editor]?.trim() && suggestions[editor] && !direct.some(entry => entry.name === editor)) next[editor] = suggestions[editor];
+                  }
+                  return next;
+                });
+                setNotice('Email dari permintaan lama yang tidak ambigu diisikan otomatis. Periksa alamat sebelum menyimpan.');
+              }}
+              className="border border-[var(--notion-border-strong)] rounded-md px-2 py-1.5 text-xs">Isi dari permintaan lama</button>
+          </div>
+          <p className="text-xs text-[var(--notion-text-muted)]">Masukkan email Google yang benar untuk anggota tim. Kosongkan anggota yang sudah terdaftar atau belum diketahui. Seluruh email yang diisi disimpan dalam satu klik.</p>
+          {EDITOR_NAMES.map(editor => (
+            <label key={editor} className="flex items-center gap-2 text-xs">
+              <span className="w-16 shrink-0 font-medium">{editor}</span>
+              <input type="email" autoComplete="off" value={bulkEmails[editor] ?? ''}
+                onChange={e => setBulkEmails(prev => ({...prev, [editor]: e.target.value}))}
+                placeholder={direct.some(entry => entry.name === editor) ? 'Sudah terdaftar (opsional)' : 'Email Google'}
+                className="flex-1 min-w-0 rounded-md border border-[var(--notion-border)] bg-[var(--notion-bg)] p-2 text-xs"/>
+            </label>
+          ))}
+          <button type="button" disabled={busy !== null || !Object.values(bulkEmails).some(value => value.trim())}
+            onClick={async () => {
+              setBusy('bulk'); setError(''); setNotice('');
+              try {
+                const count = await registerDirectEditorsBulk(ownerUid, EDITOR_NAMES.map(name => ({name, email: bulkEmails[name] ?? ''})));
+                setNotice(`${count} editor berhasil didaftarkan. Mereka dapat login langsung tanpa persetujuan.`);
+                setBulkEmails({});
+              } catch (err) { setError(err instanceof Error ? err.message : 'Gagal mendaftarkan editor sekaligus.'); }
+              finally { setBusy(null); }
+            }}
+            className="rounded-md bg-[#0064ff] text-white px-3 py-2 text-xs font-medium disabled:opacity-50">
+            {busy === 'bulk' ? 'Menyimpan...' : 'Aktifkan Semua Email yang Diisi'}
+          </button>
+        </div>
+        <div className="text-[11px] text-[var(--notion-text-muted)]">Atau daftarkan satu editor:</div>
         <div className="flex flex-wrap gap-2">
           <select value={name} onChange={(e) => setName(e.target.value)} className="rounded-md border border-[var(--notion-border)] bg-[var(--notion-bg)] p-2 text-xs">
             {EDITOR_NAMES.map((editor) => <option key={editor} value={editor}>{editor}</option>)}

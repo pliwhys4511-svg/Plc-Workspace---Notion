@@ -26,6 +26,7 @@ import type { Page, PageTreeNode, ThemeMode, WorkspaceSettings } from '../lib/ty
 import { buildPageTree } from '../lib/workspaceOps';
 import { findVisiblePlcCommPage, otherWorkspacePages, isPlcCommPage } from '../lib/workspaceNavigation';
 import { PWAInstallButton } from './PWAComponents';
+import { findHighImpactPage, HIGH_IMPACT_TITLE } from '../lib/highImpactTracker';
 
 interface SidebarProps {
   canManage: boolean;
@@ -45,6 +46,7 @@ interface SidebarProps {
   onOpenSettings: () => void;
   onOpenTemplates: () => void;
   onRestorePlcComm: () => void;
+  onOpenHighImpact: () => void;
   onToggleTheme: (theme: ThemeMode) => void;
   onCloseSidebar: () => void;
   cloudUser?: User | null;
@@ -70,6 +72,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenSettings,
   onOpenTemplates,
   onRestorePlcComm,
+  onOpenHighImpact,
   onToggleTheme,
   onCloseSidebar,
   cloudUser,
@@ -135,6 +138,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const tree = useMemo(() => buildPageTree(otherWorkspacePages(pages), null), [pages]);
   const plcCommPage = useMemo(() => findVisiblePlcCommPage(pages), [pages]);
+  const highImpactPage = useMemo(() => findHighImpactPage(pages), [pages]);
 
   const favorites = useMemo(
     () =>
@@ -486,6 +490,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <DatabaseIcon className="w-3.5 h-3.5 text-[#0064ff] shrink-0" />
                 <span className="truncate">PLC Comm</span>
               </button>
+              {!highImpactPage && (
+                <button type="button" onClick={onOpenHighImpact}
+                  title={HIGH_IMPACT_TITLE}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-[13.5px] text-left text-[var(--notion-text-secondary)] hover:bg-[var(--notion-hover)] hover:text-[var(--notion-text)]">
+                  <DatabaseIcon className="w-3.5 h-3.5 text-[#0064ff] shrink-0" />
+                  <span className="truncate">{HIGH_IMPACT_TITLE}</span>
+                </button>
+              )}
               {tree.map((node) => renderTreeNode(node, 0))}
             </div>
 

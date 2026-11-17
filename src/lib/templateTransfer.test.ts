@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createSeedWorkspace } from './seedData';
+import { HIGH_IMPACT_TITLE, HIGH_IMPACT_HEADERS, HIGH_IMPACT_DB_ID, HIGH_IMPACT_PAGE_ID, planHighImpactTracker } from './highImpactTracker';
 import {
   createProjectFromTemplateImport,
   exportDatabaseToCsv,
@@ -167,4 +168,41 @@ test('exportDatabaseToMarkdown & parseNotionMarkdownImport convert Notion Markdo
   assert.ok(parsedDoc.blocks.some((b) => b.type === 'h2' && b.content === 'Goals'));
   assert.ok(parsedDoc.blocks.some((b) => b.type === 'todo' && b.checked === true));
   assert.ok(parsedDoc.blocks.some((b) => b.type === 'code' && b.language === 'ts'));
+});
+
+test('High Impact learning CSV preserves all ten typed columns even with empty metrics', () => {
+  const csv = [
+    HIGH_IMPACT_HEADERS.join(','),
+    '"Example course, module one",Learning Team,Video Learning,Example vendor,Live,,,,,',
+    'Example course two,Learning Team,Video Learning,Example vendor,Storyboard Vendor,2026-11-01,2026-11-20,https://example.invalid/course,"1,200",800',
+  ].join('\n');
+  const imported = parseUploadedTemplateFile('untitled.csv', csv);
+  assert.equal(imported.name, HIGH_IMPACT_TITLE);
+  assert.deepEqual(imported.columns.map(c => c.name), [...HIGH_IMPACT_HEADERS]);
+  assert.deepEqual(imported.columns.map(c => c.type), ['title','person','select','select','select','date','date','url','number','number']);
+  assert.equal(imported.rows.length, 2);
+  assert.equal(imported.rows[0].cells.col_title, 'Example course, module one');
+  assert.equal(imported.rows[0].cells.col_access, null);
+  assert.equal(imported.rows[0].cells.col_status, 'live');
+  assert.equal(imported.rows[1].cells.col_access, 1200);
+  assert.equal(imported.rows[1].cells.col_completion, 800);
+  assert.equal(imported.rows[1].cells.col_end, '2026-11-20');
+  const initial = planHighImpactTracker(createSeedWorkspace());
+  const merged = mergeImportIntoDatabase(initial.database, imported, 'append', initial.page.id);
+  assert.equal(merged.nextDatabase.rows.length, 2);
+  assert.equal(merged.nextDatabase.columns.length, 10);
+});
+
+test('High Impact tracker uses fixed shared IDs and never replaces existing rows or unrelated projects', () => {
+  const original = createSeedWorkspace();
+  const planned = planHighImpactTracker(original);
+  assert.equal(planned.action, 'create');
+  assert.equal(planned.page.id, HIGH_IMPACT_PAGE_ID);
+  assert.equal(planned.database.id, HIGH_IMPACT_DB_ID);
+  assert.equal(planned.workspace.pages.length, original.pages.length+1);
+  assert.equal(planned.workspace.databases.db_roadmap, original.databases.db_roadmap);
+  const reopened = planHighImpactTracker(planned.workspace);
+  assert.equal(reopened.action, 'open');
+  assert.equal(reopened.database, planned.database);
+  assert.equal(reopened.workspace, planned.workspace);
 });
